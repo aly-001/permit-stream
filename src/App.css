@@ -1,0 +1,25 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  background-color: #232f3e;
+  color: white;
+  padding: 10px;
+  text-align: center;
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.webview-container {
+  flex: 1;
+  background-color: white;
+}
+
+webview {
+  border: none;
+}

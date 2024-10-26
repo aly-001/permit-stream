@@ -1,0 +1,60 @@
+First Name: Jimmy
+Last Name: Anderson
+andersonj@email.com
+P: (403) 555-7890
+2341 15th Avenue NW
+Calgary, AB T2H 2A8 CAN
+Project Manager: Robert
+Designer: Sarah
+Price inc. GST: $23,450.00
+Module: SL8P-365WP-PR
+Module Quantity: 28
+Inverter A: SB EX4-L
+Inverter A Quantity: 14
+Consumption Kwh: 12,350.00
+Production kWh: 12,180.00
+KW DC: 10.22
+AP Warranty extension: Yes
+Solar warranty 25yr: Yes
+Sub panel: Yes
+Main panel swap: No
+Trenching: Yes
+Attic Access: No
+Roof Type: Metal
+6/12 to 9/12: Yes
+9/12 and higher: No
+Vent Move: Yes
+Wire Service Provider: Direct Energy
+Permit location: Calgary
+Greener homes loan: No
+CIEP: Yes
+Critter guard: No
+Snow Guard: Yes
+Home Energy Monitor: Yes
+Car Charger: Yes
+Load Management: Yes
+Ground Mount: No
+Battery: Yes
+Appliance added: No
+Site ID: 0020001843127
+Status: In Progress
+Permit Status: Pending
+Est Install Date: 2025-06-15
+Lawn Sign: Yes
+Deficiency Reported: No
+Date of Completed Install: 2025-07-20
+Commission Paid?: No
+Grant 2 conditional: Yes
+Comm. PO Created: No
+Engineering Req: Yes
+Req. more bills: Yes
+Workflow
+Type: Residential
+Status: Design Review
+Days in Status: 45
+Sales Rep: Michael Thompson
+Lead Source: Website Inquiry
+Assigned To: Emma Davis, Chris Wilson, Alex Lee, Maria Garcia, David Chen
+Synced with QuickBooks: Yes
+Is Archived? No
+Created By Michael Thompson on 2024-01-15 9:30 AM
