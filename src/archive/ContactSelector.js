@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import JobNimbusService from '../services/JobNimbusService';
-import DocumentCard from './DocumentCard';
+import React, { useState, useEffect } from "react";
+import JobNimbusService from "../services/JobNimbusService";
+import DocumentCard from "./DocumentCard";
 
 const ContactSelector = () => {
   const [contacts, setContacts] = useState([]);
@@ -10,7 +10,7 @@ const ContactSelector = () => {
   const [documents, setDocuments] = useState([]);
 
   // Initialize service with your API token
-  const jobNimbus = new JobNimbusService('m2ud7n7j67nzk6x0');
+  const jobNimbus = new JobNimbusService("m2ud7n7j67nzk6x0");
 
   useEffect(() => {
     loadContacts();
@@ -22,7 +22,7 @@ const ContactSelector = () => {
       const response = await jobNimbus.getContacts();
       setContacts(response.results);
     } catch (err) {
-      setError('Failed to load contacts');
+      setError("Failed to load contacts");
       console.error(err);
     } finally {
       setLoading(false);
@@ -40,16 +40,16 @@ const ContactSelector = () => {
       setLoading(true);
       const contact = await jobNimbus.getContactById(contactId);
       setSelectedContact(contact);
-      
+
       try {
         const docs = await jobNimbus.getContactDocuments(contactId);
         setDocuments(docs.files || []);
       } catch (docErr) {
-        console.log('Documents not available for this contact:', docErr);
+        console.log("Documents not available for this contact:", docErr);
         setDocuments([]);
       }
     } catch (err) {
-      setError('Failed to load contact details');
+      setError("Failed to load contact details");
       console.error(err);
       setSelectedContact(null);
       setDocuments([]);
@@ -62,34 +62,34 @@ const ContactSelector = () => {
     try {
       setLoading(true);
       const downloadUrl = jobNimbus.getDocumentDownloadUrl(documentId);
-      
+
       // Fetch with proper authentication
       const response = await fetch(downloadUrl, {
         headers: {
-          'Authorization': `Bearer ${jobNimbus.config.apiToken}`
-        }
+          Authorization: `Bearer ${jobNimbus.config.apiToken}`,
+        },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       // Get the blob directly from response
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      
+
       // Trigger download
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError('Failed to download document');
+      setError("Failed to download document");
       console.error(err);
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ const ContactSelector = () => {
   };
 
   const handleDragStart = (document) => {
-    console.log('Started dragging:', document.filename);
+    console.log("Started dragging:", document.filename);
   };
 
   const handleDragOver = (e) => {
@@ -107,7 +107,7 @@ const ContactSelector = () => {
   const handleDrop = async (e) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
-    
+
     if (files.length > 0 && selectedContact) {
     }
   };
@@ -117,14 +117,16 @@ const ContactSelector = () => {
       <div className="selector-container">
         <label>
           Select a Contact:
-          <select 
+          <select
             onChange={(e) => handleContactSelect(e.target.value)}
             disabled={loading}
           >
             <option value="">-- Select Contact --</option>
-            {contacts.map(contact => (
+            {contacts.map((contact) => (
               <option key={contact.jnid} value={contact.jnid}>
-                {contact.display_name || `${contact.first_name} ${contact.last_name}` || contact.company}
+                {contact.display_name ||
+                  `${contact.first_name} ${contact.last_name}` ||
+                  contact.company}
               </option>
             ))}
           </select>
@@ -135,14 +137,19 @@ const ContactSelector = () => {
       {error && <div className="error">{error}</div>}
 
       {selectedContact && (
-        <div 
+        <div
           className="documents-section"
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
-          <h3>Documents for {selectedContact.display_name || `${selectedContact.first_name} ${selectedContact.last_name}` || selectedContact.company}</h3>
+          <h3>
+            Documents for{" "}
+            {selectedContact.display_name ||
+              `${selectedContact.first_name} ${selectedContact.last_name}` ||
+              selectedContact.company}
+          </h3>
           <div className="documents-grid">
-            {documents.map(doc => (
+            {documents.map((doc) => (
               <DocumentCard
                 key={doc.jnid}
                 document={doc}

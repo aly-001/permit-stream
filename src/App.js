@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 import { useFormAutomation } from "./hooks/useFormAutomation";
-import FormDataParser, { parseCRMText } from "./formDataParser";  // Add this import
+import FormDataParser, { parseCRMText } from "./formDataParser"; // Add this import
 import JobNimbusService from "./services/JobNimbusService";
 // function App() {
 //   const webviewRef = useRef(null);
@@ -201,12 +201,12 @@ import JobNimbusService from "./services/JobNimbusService";
 //   );
 // }
 
-import ContactSelector from './components/ContactSelector';
-
+import ContactSelector from "./archive/ContactSelector";
+import MainScreen from "./screens/MainScreen";
 function App() {
   return (
     <div>
-      <h1>Permit Stream</h1>
+      <MainScreen />
     </div>
   );
 }
