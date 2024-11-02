@@ -372,64 +372,65 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
   }, []);
 
   const uploadDocuments = useCallback(async () => {
-    console.log('Starting document upload process with documents:', formData.documents);
+    console.log('Starting document upload process');
     try {
-      for (const document of formData.documents) {
-        console.log('Processing document:', {
-          filename: document.filename,
-          path: document.localPath,
-          exists: fs.existsSync(document.localPath)
-        });
+      // Process files in chunks to avoid memory issues
+      const CHUNK_SIZE = 2; // Process 2 files at a time
+      const documents = [...formData.documents];
+      
+      while (documents.length > 0) {
+        const chunk = documents.splice(0, CHUNK_SIZE);
+        console.log(`Processing chunk of ${chunk.length} documents`);
         
-        // Read file content synchronously
-        const fileContent = fs.readFileSync(document.localPath);
-        console.log('File content read, size:', fileContent.length);
+        // Read all files in current chunk simultaneously
+        const fileContents = await Promise.all(chunk.map(async doc => {
+          console.log(`Reading file: ${doc.filename}`);
+          const content = await fs.promises.readFile(doc.localPath);
+          return {
+            content: Buffer.from(content).toString('base64'), // Convert to base64
+            filename: doc.filename,
+            contentType: doc.contentType
+          };
+        }));
 
-        await executeWithTimeout(
-          `
+        // Execute the file upload in the webview
+        await executeWithTimeout(`
           return new Promise((resolve, reject) => {
             try {
-              console.log('Starting file upload in webview');
               const input = document.querySelector('input[type="file"]');
-              if (!input) {
-                throw new Error('File input element not found');
-              }
-
-              // Create a File object from the file content
-              const file = new File(
-                [new Uint8Array(${JSON.stringify(Array.from(fileContent))})],
-                '${document.filename}',
-                { type: '${document.contentType}' }
-              );
-
-              // Create a DataTransfer object
+              if (!input) throw new Error('File input element not found');
+              
               const dataTransfer = new DataTransfer();
-              dataTransfer.items.add(file);
               
-              // Set the files property
+              ${fileContents.map((file, index) => `
+                // Convert base64 back to Uint8Array and create File object
+                const content${index} = Uint8Array.from(atob('${file.content}'), c => c.charCodeAt(0));
+                const file${index} = new File([content${index}], '${file.filename}', { type: '${file.contentType}' });
+                dataTransfer.items.add(file${index});
+              `).join('\n')}
+              
+              // Preserve any existing files in the input
+              const existingFiles = Array.from(input.files || []);
+              existingFiles.forEach(file => dataTransfer.items.add(file));
+              
+              // Update the input and trigger change event
               input.files = dataTransfer.files;
-
-              // Dispatch change event
-              const event = new Event('change', { bubbles: true });
-              input.dispatchEvent(event);
+              input.dispatchEvent(new Event('change', { bubbles: true }));
               
-              console.log('File upload completed in webview');
-              resolve('File processed: ${document.filename}');
+              resolve('Chunk processed successfully');
             } catch (e) {
-              console.error('Upload error in webview:', e);
+              console.error('Webview upload error:', e);
               reject(e);
             }
           });
-          `, 10000); // Increased timeout for file processing
+        `, 10000);
 
-        console.log(`Successfully processed document: ${document.filename}`);
+        console.log(`Successfully processed chunk of ${chunk.length} documents`);
       }
+
+      console.log('Successfully processed all documents');
     } catch (error) {
-      console.error('Detailed upload error:', {
-        message: error.message,
-        stack: error.stack,
-        documents: formData.documents
-      });
+      console.error('Upload error:', error);
       throw error;
     }
   }, [executeWithTimeout, formData.documents]);
