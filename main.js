@@ -96,54 +96,62 @@ ipcMain.handle('api-request', async (event, { url, options }) => {
 });
 
 ipcMain.handle('download-file', async (event, { url, headers, filename }) => {
-  try {
-    const downloadPath = path.join(app.getPath('userData'), 'downloads');
-    if (!fs.existsSync(downloadPath)) {
-      fs.mkdirSync(downloadPath, { recursive: true });
-    }
+  const maxRedirects = 5;
+  let redirectCount = 0;
 
-    const filePath = path.join(downloadPath, filename);
-    
+  const downloadFile = async (currentUrl, currentHeaders) => {
     return new Promise((resolve, reject) => {
-      const req = https.request(url, {
+      const req = https.request(currentUrl, {
         method: 'GET',
-        headers: headers
+        headers: currentHeaders
       }, (res) => {
-        if (res.statusCode === 401) {
-          reject(new Error('Failed to download: 401'));
-          return;
+        // Handle redirects
+        if ((res.statusCode === 302 || res.statusCode === 301) && res.headers.location) {
+          if (redirectCount >= maxRedirects) {
+            reject(new Error('Too many redirects'));
+            return;
+          }
+          redirectCount++;
+          
+          // Create new headers without Authorization for redirect
+          const redirectHeaders = { ...currentHeaders };
+          delete redirectHeaders['Authorization'];
+          
+          // Follow redirect
+          return resolve(downloadFile(res.headers.location, redirectHeaders));
         }
 
-        if (res.statusCode !== 200) {
-          reject(new Error(`Failed to download: ${res.statusCode}`));
-          return;
+        if (res.statusCode === 200) {
+          const downloadPath = path.join(app.getPath('userData'), 'downloads');
+          if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath, { recursive: true });
+          }
+
+          const filePath = path.join(downloadPath, filename);
+          const fileStream = fs.createWriteStream(filePath);
+          
+          res.pipe(fileStream);
+          
+          fileStream.on('finish', () => {
+            fileStream.close();
+            resolve({ success: true, filePath });
+          });
+
+          fileStream.on('error', (error) => {
+            reject(error);
+          });
+        } else {
+          reject(new Error(`Download failed with status: ${res.statusCode}`));
         }
-
-        const fileStream = fs.createWriteStream(filePath);
-        res.pipe(fileStream);
-
-        fileStream.on('finish', () => {
-          fileStream.close();
-          resolve({
-            success: true,
-            filePath: filePath,
-            error: null
-          });
-        });
-
-        fileStream.on('error', (err) => {
-          fs.unlink(filePath, () => {
-            reject(new Error(`File write error: ${err.message}`));
-          });
-        });
       });
 
-      req.on('error', (error) => {
-        reject(new Error(`Request error: ${error.message}`));
-      });
-
+      req.on('error', reject);
       req.end();
     });
+  };
+
+  try {
+    return await downloadFile(url, headers);
   } catch (error) {
     console.error('Download Error:', error);
     return {

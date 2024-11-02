@@ -67,20 +67,33 @@ class JobNimbusService {
   }
 
   getDocumentDownloadUrl(documentId) {
-    return `${this.config.baseUrl}/files/${documentId}`;
+    return `${this.config.baseUrl}/files/${documentId}?download=1`;
   }
 
-  async downloadDocument(documentId, contactId, filename) {
-    const url = this.getDocumentDownloadUrl(documentId);
-    return ipcRenderer.invoke('download-file', {
-      url,
-      headers: {
-        'Authorization': `Bearer ${this.config.apiToken}`,
-        'Accept': 'application/octet-stream'
-      },
-      filename,
-      contactId
-    });
+  async downloadDocument(documentId, filename) {
+    try {
+      console.log(`Attempting to download: ${filename} (ID: ${documentId})`);
+      const downloadUrl = this.getDocumentDownloadUrl(documentId);
+      console.log('Download URL:', downloadUrl);
+
+      const result = await ipcRenderer.invoke('download-file', {
+        url: downloadUrl,
+        headers: {
+          'Authorization': `Bearer ${this.config.apiToken}`,
+          'Accept': '*/*'
+        },
+        filename: filename
+      });
+
+      if (!result.success) {
+        throw new Error(`Failed to download: ${result.error}`);
+      }
+
+      return result.filePath;
+    } catch (error) {
+      console.error(`Error downloading document ${filename}:`, error);
+      throw error;
+    }
   }
 }
 

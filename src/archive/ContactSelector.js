@@ -11,7 +11,6 @@ const ContactSelector = () => {
 
   // Initialize service with your API token
   const jobNimbus = new JobNimbusService("m2ud7n7j67nzk6x0");
-
   useEffect(() => {
     loadContacts();
   }, []);

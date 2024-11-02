@@ -3,7 +3,7 @@ import JobNimbusService from '../services/JobNimbusService';
 
 const ContactContext = createContext();
 
-const processContact = (rawContact) => {
+const processContact = async (rawContact, jobNimbusService) => {
   // Calculate month offset and day from estimated install date
   const calculatePlannedDate = (timestamp) => {
     if (!timestamp) return { month_offset: 3, day: 15 }; // Default values if no timestamp
@@ -26,48 +26,82 @@ const processContact = (rawContact) => {
 
   const plannedDate = calculatePlannedDate(rawContact['Est Install Date'] || rawContact.cf_date_1);
 
-  return {
-    id: rawContact.recid,
-    site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
-    planned_date: plannedDate,
-    city: rawContact.city || "cat",
-    postal_code: rawContact.zip || "cat",
-    current_energy_consumption: rawContact.Consumption_Kwh?.toString() || rawContact.cf_double_2?.toString() || "",
-    projected_energy_production: rawContact.Production_kWh?.toString() || rawContact.cf_double_3?.toString() || "",
-    energy_source: "Solar",
-    generator_type: "Synchronous",
-    ac_capacity: rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
-    required_documents: [
-      "Electrical single-line diagram",
-      "Site plan",
-      "Inverter specification",
-      "Solar panel specifications",
-      "Bidirectional meter installation acknowledgement",
-    ],
-    documents: [
-      {
-        filename: "sample-diagram.pdf",
-        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/sample-diagram.pdf",
-        contentType: "application/pdf",
-      },
-      {
-        filename: "site-plan.pdf",
-        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/site-plan.pdf",
-        contentType: "application/pdf",
-      },
-      {
-        filename: "inverter-specs.pdf",
-        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/inverter-specs.pdf",
-        contentType: "application/pdf",
+  try {
+    // Fetch and process documents
+    const documentsResponse = await jobNimbusService.getContactDocuments(rawContact.recid);
+    const documents = [];
+
+    if (documentsResponse && documentsResponse.files) {
+      for (const doc of documentsResponse.files) {
+        try {
+          const filePath = await jobNimbusService.downloadDocument(doc.jnid, doc.filename);
+          documents.push({
+            filename: doc.filename,
+            downloadUrl: `file://${filePath}`,
+            contentType: doc.content_type,
+            localPath: filePath
+          });
+        } catch (error) {
+          console.error(`Error processing document ${doc.filename}:`, error);
+        }
       }
-    ],
-    contact: {
-      name: rawContact.display_name || "cat",
-      phone: rawContact.home_phone || rawContact.mobile_phone || rawContact.work_phone || "",
-      email: rawContact.email || "cat",
-      preferred_method: "email",
-    },
-  };
+    }
+
+    return {
+      id: rawContact.recid,
+      site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
+      planned_date: plannedDate,
+      city: rawContact.city || "cat",
+      postal_code: rawContact.zip || "cat",
+      current_energy_consumption: rawContact.Consumption_Kwh?.toString() || rawContact.cf_double_2?.toString() || "",
+      projected_energy_production: rawContact.Production_kWh?.toString() || rawContact.cf_double_3?.toString() || "",
+      energy_source: "Solar",
+      generator_type: "Synchronous",
+      ac_capacity: rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
+      required_documents: [
+        "Electrical single-line diagram",
+        "Site plan",
+        "Inverter specification",
+        "Solar panel specifications",
+        "Bidirectional meter installation acknowledgement",
+      ],
+      documents: documents,
+      contact: {
+        name: rawContact.display_name || "cat",
+        phone: rawContact.home_phone || rawContact.mobile_phone || rawContact.work_phone || "",
+        email: rawContact.email || "cat",
+        preferred_method: "email",
+      },
+    };
+  } catch (error) {
+    console.error('Error processing contact:', error);
+    return {
+      id: rawContact.recid,
+      site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
+      planned_date: plannedDate,
+      city: rawContact.city || "cat",
+      postal_code: rawContact.zip || "cat",
+      current_energy_consumption: rawContact.Consumption_Kwh?.toString() || rawContact.cf_double_2?.toString() || "",
+      projected_energy_production: rawContact.Production_kWh?.toString() || rawContact.cf_double_3?.toString() || "",
+      energy_source: "Solar",
+      generator_type: "Synchronous",
+      ac_capacity: rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
+      required_documents: [
+        "Electrical single-line diagram",
+        "Site plan",
+        "Inverter specification",
+        "Solar panel specifications",
+        "Bidirectional meter installation acknowledgement",
+      ],
+      documents: [],
+      contact: {
+        name: rawContact.display_name || "cat",
+        phone: rawContact.home_phone || rawContact.mobile_phone || rawContact.work_phone || "",
+        email: rawContact.email || "cat",
+        preferred_method: "email",
+      },
+    };
+  }
 };
 
 export function ContactProvider({ children }) {
@@ -88,7 +122,9 @@ export function ContactProvider({ children }) {
         
         console.log('Raw Contact Data:', response.results);
 
-        const contactsData = response.results.map(contact => processContact(contact));
+        const contactsData = await Promise.all(
+          response.results.map(contact => processContact(contact, jobNimbusService))
+        );
 
         const sortedContacts = contactsData.sort((a, b) => b.date_created - a.date_created);
         setContacts(sortedContacts);
