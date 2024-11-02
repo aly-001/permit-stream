@@ -145,28 +145,50 @@ ipcMain.handle('api-request', async (event, { url, options }) => {
 
 ipcMain.handle('download-file', async (event, { url, fileName, headers }) => {
   const downloadsPath = path.join(app.getPath('userData'), 'downloads');
-  // Ensure the downloads directory exists
   await fs.promises.mkdir(downloadsPath, { recursive: true });
   
   const filePath = path.join(downloadsPath, fileName);
 
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(filePath);
+    const makeRequest = (requestUrl) => {
+      const file = fs.createWriteStream(filePath);
+      
+      const request = https.get(requestUrl, { headers }, (response) => {
+        // Handle redirects
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          makeRequest(response.headers.location);
+          return;
+        }
 
-    https.get(url, { headers }, (response) => {
-      response.pipe(file);
+        // Check if the response is successful
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlink(filePath, () => {
+            reject(new Error(`Failed to download: ${response.statusCode} ${response.statusMessage}`));
+          });
+          return;
+        }
 
-      file.on('finish', () => {
-        file.close();
-        resolve(filePath);
+        // Pipe the response directly to the file
+        response
+          .pipe(file)
+          .on('finish', () => {
+            file.close(() => resolve(filePath));
+          })
+          .on('error', (err) => {
+            file.close();
+            fs.unlink(filePath, () => reject(err));
+          });
       });
 
-      file.on('error', (err) => {
+      request.on('error', (err) => {
+        file.close();
         fs.unlink(filePath, () => reject(err));
       });
-    }).on('error', (err) => {
-      fs.unlink(filePath, () => reject(err));
-    });
+    };
+
+    makeRequest(url);
   });
 });
 

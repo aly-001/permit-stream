@@ -56,7 +56,8 @@ class JobNimbusService {
         url: downloadUrl,
         fileName,
         headers: {
-          Authorization: `Bearer ${this.config.apiToken}`
+          'Authorization': `Bearer ${this.config.apiToken}`,
+          'Accept': '*/*'
         }
       });
       return filePath;
@@ -69,14 +70,19 @@ class JobNimbusService {
   // New method to download multiple documents for a contact
   async downloadContactDocuments(contactId) {
     try {
+      console.time('Total download time');
       const docs = await this.getContactDocuments(contactId);
       if (!docs.files || !docs.files.length) {
+        console.timeEnd('Total download time');
         return [];
       }
 
       const downloadPromises = docs.files.map(async (doc) => {
         try {
+          console.time(`Download time for ${doc.filename}`);
           const localPath = await this.downloadDocument(doc.jnid, doc.filename);
+          console.timeEnd(`Download time for ${doc.filename}`);
+          
           return {
             filename: doc.filename,
             downloadUrl: `file://${localPath}`,
@@ -90,9 +96,11 @@ class JobNimbusService {
       });
 
       const results = await Promise.all(downloadPromises);
+      console.timeEnd('Total download time');
       return results.filter(result => result !== null);
     } catch (error) {
       console.error('Failed to download contact documents:', error);
+      console.timeEnd('Total download time');
       throw error;
     }
   }

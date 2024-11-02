@@ -1,3 +1,23 @@
+I have a working permit filler application. 
+The way it works:
+- it gathers user data from JobNimbus
+- It downloads these files to a local directory on my computer
+- It stores the local file paths in the contact object
+- Later, when filling the form, it accesses the file paths, and uploads them into the form.
+
+The problem:
+- It takes a very long time to call the uploadDocuments function in the form automation hook.
+- Probably like 5 seconds per file, or something. Even though the files are pdfs that are like 10-15mb. Should be faster.
+
+What I need you to do
+- Deep dive into possible solutions for how to make the automation hook run faster
+- Don't be afraid to do radical stuff like have the files load beforehand or something
+- It's up to you to figure out what we should change to make the permit filler faster.
+
+I've attached the relevant files below.
+
+Note that this is a react application using express
+
 // hooks/useFormAutomation.js
 import { useCallback } from "react";
 
@@ -423,6 +443,8 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
           `, 10000); // Increased timeout for file processing
 
         console.log(`Successfully processed document: ${document.filename}`);
+        // Add a larger delay between uploads
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
       console.error('Detailed upload error:', {
@@ -578,3 +600,554 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
 
   return { fillForm };
 };
+
+
+// JobNimbusService.js
+const { ipcRenderer } = window.require('electron');
+
+class JobNimbusService {
+  constructor(apiToken) {
+    this.config = {
+      apiToken,
+      baseUrl: 'https://app.jobnimbus.com/api1'
+    };
+  }
+
+  async request(endpoint, options = {}) {
+    try {
+      const response = await ipcRenderer.invoke('api-request', {
+        url: `${this.config.baseUrl}${endpoint}`,
+        options: {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiToken}`
+          }
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('API Request failed:', error);
+      throw error;
+    }
+  }
+
+  async getContacts() {
+    return this.request('/contacts');
+  }
+
+  async getContactById(contactId) {
+    return this.request(`/contacts/${contactId}`);
+  }
+
+  async getContactDocuments(contactId) {
+    return this.request(`/files?grid=document&webui=yes&fields=content_type,filename,jnid,esign,size,pages,date_updated,related,description,date_created,date_file_created,record_type_name,created_by_name,created_by,report&related=${contactId}`);
+  }
+
+  getDocumentDownloadUrl(documentId) {
+    return `${this.config.baseUrl}/files/${documentId}?download=1`;
+  }
+
+  async downloadDocument(documentId, fileName) {
+    try {
+      const downloadUrl = this.getDocumentDownloadUrl(documentId);
+      const filePath = await ipcRenderer.invoke('download-file', {
+        url: downloadUrl,
+        fileName,
+        headers: {
+          'Authorization': `Bearer ${this.config.apiToken}`,
+          'Accept': '*/*'
+        }
+      });
+      return filePath;
+    } catch (error) {
+      console.error(`Error downloading document ${fileName}:`, error);
+      throw error;
+    }
+  }
+
+  // New method to download multiple documents for a contact
+  async downloadContactDocuments(contactId) {
+    try {
+      console.time('Total download time');
+      const docs = await this.getContactDocuments(contactId);
+      if (!docs.files || !docs.files.length) {
+        console.timeEnd('Total download time');
+        return [];
+      }
+
+      const downloadPromises = docs.files.map(async (doc) => {
+        try {
+          console.time(`Download time for ${doc.filename}`);
+          const localPath = await this.downloadDocument(doc.jnid, doc.filename);
+          console.timeEnd(`Download time for ${doc.filename}`);
+          
+          return {
+            filename: doc.filename,
+            downloadUrl: `file://${localPath}`,
+            contentType: doc.content_type,
+            localPath
+          };
+        } catch (error) {
+          console.error(`Failed to download document ${doc.filename}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(downloadPromises);
+      console.timeEnd('Total download time');
+      return results.filter(result => result !== null);
+    } catch (error) {
+      console.error('Failed to download contact documents:', error);
+      console.timeEnd('Total download time');
+      throw error;
+    }
+  }
+}
+
+export default JobNimbusService;
+
+
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut } = require('electron');
+const path = require('path');
+const https = require('https');
+const fs = require('fs');
+const installExtension = require('electron-devtools-installer');
+
+// Add error handling for @electron/remote
+let remoteMain;
+try {
+  remoteMain = require('@electron/remote/main');
+  remoteMain.initialize();
+} catch (e) {
+  console.error('Failed to initialize @electron/remote:', e);
+}
+
+
+
+/// TEMP CODE HANDLER
+ipcMain.handle('save-file', async (event, { filename, blob }) => {
+  try {
+    // Create a downloads directory in the app's user data folder
+    const userDataPath = app.getPath('userData');
+    const downloadsPath = path.join(userDataPath, 'downloads');
+    
+    if (!fs.existsSync(downloadsPath)) {
+      fs.mkdirSync(downloadsPath, { recursive: true });
+    }
+
+    // Create a safe filename
+    const safeName = filename.replace(/[^a-z0-9.-]/gi, '_');
+    const filePath = path.join(downloadsPath, safeName);
+
+    // Write the file
+    fs.writeFileSync(filePath, Buffer.from(blob));
+
+    return { success: true, filePath };
+  } catch (error) {
+    console.error('Failed to save file:', error);
+    throw error;
+  }
+});
+/// TEMP CODE HANDLER
+
+ipcMain.handle('upload-file', async (event, { inputId, filePath, filename }) => {
+  try {
+    // Read the file from the local path
+    const fileContent = await fs.promises.readFile(filePath);
+    
+    // Send the file content back to the renderer to handle the upload
+    event.sender.send('file-content-ready', {
+      inputId,
+      content: fileContent,
+      filename
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error handling file upload:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('api-request', async (event, { url, options }) => {
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const req = https.request(url, {
+        ...options,
+        headers: options.headers
+      }, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          // Log the raw response for debugging
+          console.log('Raw response:', data);
+          console.log('Status code:', res.statusCode);
+
+          // Handle authentication failure
+          if (res.statusCode === 401) {
+            resolve({
+              ok: false,
+              statusText: data.trim(), // Use the raw error message
+              data: null,
+              status: 401
+            });
+            return;
+          }
+
+          // For successful responses, try to parse JSON
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve({
+                ok: true,
+                statusText: res.statusMessage,
+                data: jsonData,
+                status: res.statusCode
+              });
+            } catch (error) {
+              resolve({
+                ok: false,
+                statusText: 'Invalid JSON response',
+                data: null,
+                status: res.statusCode
+              });
+            }
+          } else {
+            // For other error status codes
+            resolve({
+              ok: false,
+              statusText: data.trim() || res.statusMessage,
+              data: null,
+              status: res.statusCode
+            });
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      // Only write body if it exists and method isn't GET
+      if (options.body && options.method !== 'GET') {
+        req.write(JSON.stringify(options.body));
+      }
+      
+      req.end();
+    });
+
+    return response;
+  } catch (error) {
+    console.error('API Request Error:', error);
+    return {
+      ok: false,
+      statusText: error.message,
+      data: null,
+      status: 500
+    };
+  }
+});
+
+ipcMain.handle('download-file', async (event, { url, fileName, headers }) => {
+  const downloadsPath = path.join(app.getPath('userData'), 'downloads');
+  await fs.promises.mkdir(downloadsPath, { recursive: true });
+  
+  const filePath = path.join(downloadsPath, fileName);
+
+  return new Promise((resolve, reject) => {
+    const makeRequest = (requestUrl) => {
+      const file = fs.createWriteStream(filePath);
+      
+      const request = https.get(requestUrl, { headers }, (response) => {
+        // Handle redirects
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          makeRequest(response.headers.location);
+          return;
+        }
+
+        // Check if the response is successful
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlink(filePath, () => {
+            reject(new Error(`Failed to download: ${response.statusCode} ${response.statusMessage}`));
+          });
+          return;
+        }
+
+        // Pipe the response directly to the file
+        response
+          .pipe(file)
+          .on('finish', () => {
+            file.close(() => resolve(filePath));
+          })
+          .on('error', (err) => {
+            file.close();
+            fs.unlink(filePath, () => reject(err));
+          });
+      });
+
+      request.on('error', (err) => {
+        file.close();
+        fs.unlink(filePath, () => reject(err));
+      });
+    };
+
+    makeRequest(url);
+  });
+});
+
+async function installDevTools() {
+  try {
+    const REACT_DEVELOPER_TOOLS = require('electron-devtools-installer').REACT_DEVELOPER_TOOLS;
+    const name = await installExtension(REACT_DEVELOPER_TOOLS);
+    console.log(`Added Extension: ${name}`);
+  } catch (err) {
+    console.log('An error occurred installing DevTools: ', err);
+  }
+}
+
+function createWindow() {
+    // Create the browser window.
+    const mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            webviewTag: true,
+            enableRemoteModule: true,
+            webSecurity: true,
+        }
+    });
+
+    if (remoteMain) {
+        remoteMain.enable(mainWindow.webContents);
+    }
+
+    // Add download handler
+    mainWindow.webContents.session.on('will-download', (event, item, webContents) => {
+        item.once('done', (event, state) => {
+            if (state === 'completed') {
+                console.log('Download completed');
+            } else {
+                console.log('Download failed');
+            }
+        });
+    });
+
+    // Load the index.html file
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+
+    // Open DevTools in development mode
+    mainWindow.webContents.openDevTools();
+}
+
+app.whenReady().then(async () => {
+  if (process.env.NODE_ENV === 'development') {
+    await installDevTools();
+  }
+  createWindow();
+
+  // Add keyboard shortcuts
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
+    // Opens DevTools in the main window
+    BrowserWindow.getFocusedWindow().webContents.openDevTools();
+  });
+});
+
+// Quit when all windows are closed.
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
+});
+
+
+// ContactContext.js
+import React, { createContext, useState, useContext, useEffect } from "react";
+import JobNimbusService from "../services/JobNimbusService";
+
+const ContactContext = createContext();
+
+const processContact = async (rawContact, jobNimbusService) => {
+  const plannedDate = calculatePlannedDate(
+    rawContact["Est Install Date"] || rawContact.cf_date_1
+  );
+
+  // Fetch and download documents for the contact
+  let documents = [];
+  try {
+    documents = await jobNimbusService.downloadContactDocuments(
+      rawContact.jnid
+    );
+  } catch (error) {
+    console.error(
+      `Failed to fetch documents for contact ${rawContact.jnid}:`,
+      error
+    );
+  }
+
+  return {
+    id: rawContact.recid,
+    site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
+    planned_date: plannedDate,
+    city: rawContact.city || "cat",
+    postal_code: rawContact.zip || "cat",
+    current_energy_consumption:
+      rawContact.Consumption_Kwh?.toString() ||
+      rawContact.cf_double_2?.toString() ||
+      "",
+    projected_energy_production:
+      rawContact.Production_kWh?.toString() ||
+      rawContact.cf_double_3?.toString() ||
+      "",
+    energy_source: "Solar",
+    generator_type: "Synchronous",
+    ac_capacity:
+      rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
+    required_documents: [
+      "Electrical single-line diagram",
+      "Site plan",
+      "Inverter specification",
+      "Solar panel specifications",
+      "Bidirectional meter installation acknowledgement",
+    ],
+    documents: documents,
+    contact: {
+      name: rawContact.display_name || "cat",
+      phone:
+        rawContact.home_phone ||
+        rawContact.mobile_phone ||
+        rawContact.work_phone ||
+        "",
+      email: rawContact.email || "cat",
+      preferred_method: "email",
+    },
+  };
+};
+
+const calculatePlannedDate = (timestamp) => {
+  if (!timestamp) return { month_offset: 3, day: 15 };
+
+  const currentDate = new Date();
+  const installDate = new Date(timestamp * 1000);
+
+  let monthOffset =
+    (installDate.getFullYear() - currentDate.getFullYear()) * 12 +
+    (installDate.getMonth() - currentDate.getMonth());
+
+  monthOffset = monthOffset < 0 ? 3 : monthOffset;
+
+  return {
+    month_offset: monthOffset,
+    day: installDate.getDate(),
+  };
+};
+
+export function ContactProvider({ children }) {
+  const [contacts, setContacts] = useState([]);
+  const [currentContact, setCurrentContact] = useState(null);
+  const [display, setDisplay] = useState("info");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filteredContacts, setFilteredContacts] = useState([]);
+
+  const jobNimbusService = new JobNimbusService("m2ud7n7j67nzk6x0");
+
+  useEffect(() => {
+    const fetchContacts = async () => {
+      try {
+        const response = await jobNimbusService.getContacts();
+        console.log("Raw Contact Data:", response.results);
+
+        // Process contacts sequentially to avoid overwhelming the system
+        const processedContacts = [];
+        for (const contact of response.results) {
+          const processedContact = await processContact(
+            contact,
+            jobNimbusService
+          );
+          processedContacts.push(processedContact);
+        }
+
+        const sortedContacts = processedContacts.sort(
+          (a, b) => b.date_created - a.date_created
+        );
+        setContacts(sortedContacts);
+        setFilteredContacts(sortedContacts);
+        console.log("Sorted Contacts:", sortedContacts);
+        setCurrentContact(sortedContacts[0]);
+        setLoading(false);
+      } catch (err) {
+        console.error("Error fetching contacts:", err);
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchContacts();
+  }, []);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredContacts(contacts);
+      return;
+    }
+
+    const filtered = contacts.filter(
+      (contact) =>
+        contact.contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        contact.contact.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredContacts(filtered);
+  }, [searchTerm, contacts]);
+
+  return (
+    <ContactContext.Provider
+      value={{
+        contacts,
+        filteredContacts,
+        setContacts,
+        currentContact,
+        setCurrentContact,
+        display,
+        setDisplay,
+        loading,
+        error,
+        searchTerm,
+        setSearchTerm,
+      }}
+    >
+      {children}
+    </ContactContext.Provider>
+  );
+}
+
+export function useContacts() {
+  const context = useContext(ContactContext);
+  if (!context) {
+    throw new Error("useContacts must be used within a ContactProvider");
+  }
+  return context;
+}
+
+
+Give this a shot and let me know what you come up with! Thanks a lot.
