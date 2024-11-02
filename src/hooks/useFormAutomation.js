@@ -1,8 +1,9 @@
 // hooks/useFormAutomation.js
 import { useCallback } from "react";
-import { app } from '@electron/remote';
-import path from 'path';
-import fs from 'fs';
+
+const { app } = window.require('@electron/remote');
+const path = window.require('path');
+const fs = window.require('fs');
 
 const DEFAULT_FORM_DATA = {
   site_id: "0020001843127",

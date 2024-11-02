@@ -1,4 +1,4 @@
-const { app } = window.require('electron');
+const { app } = window.require('@electron/remote');
 const path = window.require('path');
 const fs = window.require('fs');
 

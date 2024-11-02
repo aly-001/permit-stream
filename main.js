@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const https = require('https');
 const fs = require('fs');
@@ -11,6 +11,36 @@ try {
 } catch (e) {
   console.error('Failed to initialize @electron/remote:', e);
 }
+
+
+
+/// TEMP CODE HANDLER
+ipcMain.handle('save-file', async (event, { filename, blob }) => {
+  try {
+    // Create a downloads directory in the app's user data folder
+    const userDataPath = app.getPath('userData');
+    const downloadsPath = path.join(userDataPath, 'downloads');
+    
+    if (!fs.existsSync(downloadsPath)) {
+      fs.mkdirSync(downloadsPath, { recursive: true });
+    }
+
+    // Create a safe filename
+    const safeName = filename.replace(/[^a-z0-9.-]/gi, '_');
+    const filePath = path.join(downloadsPath, safeName);
+
+    // Write the file
+    fs.writeFileSync(filePath, Buffer.from(blob));
+
+    return { success: true, filePath };
+  } catch (error) {
+    console.error('Failed to save file:', error);
+    throw error;
+  }
+});
+/// TEMP CODE HANDLER
+
+
 
 ipcMain.handle('api-request', async (event, { url, options }) => {
   try {
@@ -95,72 +125,33 @@ ipcMain.handle('api-request', async (event, { url, options }) => {
   }
 });
 
-ipcMain.handle('download-file', async (event, { url, headers, filename }) => {
-  const maxRedirects = 5;
-  let redirectCount = 0;
+ipcMain.handle('download-file', async (event, { url, fileName, headers }) => {
+  const downloadsPath = path.join(app.getPath('userData'), 'downloads');
+  // Ensure the downloads directory exists
+  await fs.promises.mkdir(downloadsPath, { recursive: true });
+  
+  const filePath = path.join(downloadsPath, fileName);
 
-  const downloadFile = async (currentUrl, currentHeaders) => {
-    return new Promise((resolve, reject) => {
-      const req = https.request(currentUrl, {
-        method: 'GET',
-        headers: currentHeaders
-      }, (res) => {
-        // Handle redirects
-        if ((res.statusCode === 302 || res.statusCode === 301) && res.headers.location) {
-          if (redirectCount >= maxRedirects) {
-            reject(new Error('Too many redirects'));
-            return;
-          }
-          redirectCount++;
-          
-          // Create new headers without Authorization for redirect
-          const redirectHeaders = { ...currentHeaders };
-          delete redirectHeaders['Authorization'];
-          
-          // Follow redirect
-          return resolve(downloadFile(res.headers.location, redirectHeaders));
-        }
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(filePath);
 
-        if (res.statusCode === 200) {
-          const downloadPath = path.join(app.getPath('userData'), 'downloads');
-          if (!fs.existsSync(downloadPath)) {
-            fs.mkdirSync(downloadPath, { recursive: true });
-          }
+    https.get(url, { headers }, (response) => {
+      response.pipe(file);
 
-          const filePath = path.join(downloadPath, filename);
-          const fileStream = fs.createWriteStream(filePath);
-          
-          res.pipe(fileStream);
-          
-          fileStream.on('finish', () => {
-            fileStream.close();
-            resolve({ success: true, filePath });
-          });
-
-          fileStream.on('error', (error) => {
-            reject(error);
-          });
-        } else {
-          reject(new Error(`Download failed with status: ${res.statusCode}`));
-        }
+      file.on('finish', () => {
+        file.close();
+        resolve(filePath);
       });
 
-      req.on('error', reject);
-      req.end();
+      file.on('error', (err) => {
+        fs.unlink(filePath, () => reject(err));
+      });
+    }).on('error', (err) => {
+      fs.unlink(filePath, () => reject(err));
     });
-  };
-
-  try {
-    return await downloadFile(url, headers);
-  } catch (error) {
-    console.error('Download Error:', error);
-    return {
-      success: false,
-      filePath: null,
-      error: error.message
-    };
-  }
+  });
 });
+
 
 function createWindow() {
     // Create the browser window.
@@ -192,10 +183,7 @@ function createWindow() {
     });
 
     // Load the index.html file
-    const isDev = process.env.NODE_ENV === 'development';
-    mainWindow.loadURL(
-        isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, 'index.html')}`
-    );
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
 
     // Open DevTools in development mode
     mainWindow.webContents.openDevTools();

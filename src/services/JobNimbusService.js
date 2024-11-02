@@ -13,21 +13,13 @@ class JobNimbusService {
       const response = await ipcRenderer.invoke('api-request', {
         url: `${this.config.baseUrl}${endpoint}`,
         options: {
-          method: options.method || 'GET',
           ...options,
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.config.apiToken}`,
-            'Accept': 'application/json'
+            'Authorization': `Bearer ${this.config.apiToken}`
           }
         }
       });
-      
-      console.log('API Response:', response);
-
-      if (response.status === 401) {
-        throw new Error('Authentication failed - please check your API token');
-      }
       
       if (!response.ok) {
         throw new Error(`API Error: ${response.statusText}`);
@@ -35,7 +27,7 @@ class JobNimbusService {
       
       return response.data;
     } catch (error) {
-      console.error('JobNimbusService Error:', error);
+      console.error('API Request failed:', error);
       throw error;
     }
   }
@@ -49,49 +41,26 @@ class JobNimbusService {
   }
 
   async getContactDocuments(contactId) {
-    console.log(`Fetching documents for contact ID: ${contactId}`);
-    const timestamp = Date.now();
-    const response = await this.request('/files', {
-      method: 'GET',
-      params: {
-        grid: 'document',
-        webui: 'yes',
-        fields: 'content_type,filename,jnid,esign,size,pages,date_updated,related,description,date_created,date_file_created,record_type_name,created_by_name,created_by,report',
-        related: contactId,
-        size: 0,
-        _: timestamp
-      }
-    });
-    console.log('~~~~~~~Documents response:', response);
-    return response;
+    return this.request(`/files?grid=document&webui=yes&fields=content_type,filename,jnid,esign,size,pages,date_updated,related,description,date_created,date_file_created,record_type_name,created_by_name,created_by,report&related=${contactId}`);
   }
 
   getDocumentDownloadUrl(documentId) {
     return `${this.config.baseUrl}/files/${documentId}?download=1`;
   }
 
-  async downloadDocument(documentId, filename) {
+  async downloadDocument(documentId, fileName) {
     try {
-      console.log(`Attempting to download: ${filename} (ID: ${documentId})`);
       const downloadUrl = this.getDocumentDownloadUrl(documentId);
-      console.log('Download URL:', downloadUrl);
-
-      const result = await ipcRenderer.invoke('download-file', {
+      const filePath = await ipcRenderer.invoke('download-file', {
         url: downloadUrl,
+        fileName,
         headers: {
-          'Authorization': `Bearer ${this.config.apiToken}`,
-          'Accept': '*/*'
-        },
-        filename: filename
+          Authorization: `Bearer ${this.config.apiToken}`
+        }
       });
-
-      if (!result.success) {
-        throw new Error(`Failed to download: ${result.error}`);
-      }
-
-      return result.filePath;
+      return filePath;
     } catch (error) {
-      console.error(`Error downloading document ${filename}:`, error);
+      console.error(`Error downloading document ${fileName}:`, error);
       throw error;
     }
   }

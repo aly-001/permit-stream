@@ -201,27 +201,27 @@ import JobNimbusService from "./services/JobNimbusService";
 //   );
 // }
 
-// import ContactSelector from "./archive/ContactSelector";
-// import MainScreen from "./screens/Main";
+import ContactSelector from "./archive/ContactSelector";
+import MainScreen from "./screens/Main";
 
-// function App() {
-//   return (
-//     <div>
-//       <MainScreen />
-//     </div>
-//   );
-// }
-
-// export default App;
-
-
-import JobNimbusFileDownloader from "./random/JobNimbusFileDownloader";
 function App() {
   return (
     <div>
-      <JobNimbusFileDownloader />
+      <MainScreen />
     </div>
   );
 }
 
 export default App;
+
+
+// import JobNimbusFileDownloader from "./random/JobNimbusFileDownloader";
+// function App() {
+//   return (
+//     <div>
+//       <JobNimbusFileDownloader />
+//     </div>
+//   );
+// }
+
+// export default App;
