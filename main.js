@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const https = require('https');
 const fs = require('fs');
+const installExtension = require('electron-devtools-installer');
 
 // Add error handling for @electron/remote
 let remoteMain;
@@ -40,7 +41,24 @@ ipcMain.handle('save-file', async (event, { filename, blob }) => {
 });
 /// TEMP CODE HANDLER
 
-
+ipcMain.handle('upload-file', async (event, { inputId, filePath, filename }) => {
+  try {
+    // Read the file from the local path
+    const fileContent = await fs.promises.readFile(filePath);
+    
+    // Send the file content back to the renderer to handle the upload
+    event.sender.send('file-content-ready', {
+      inputId,
+      content: fileContent,
+      filename
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error handling file upload:', error);
+    throw error;
+  }
+});
 
 ipcMain.handle('api-request', async (event, { url, options }) => {
   try {
@@ -152,6 +170,15 @@ ipcMain.handle('download-file', async (event, { url, fileName, headers }) => {
   });
 });
 
+async function installDevTools() {
+  try {
+    const REACT_DEVELOPER_TOOLS = require('electron-devtools-installer').REACT_DEVELOPER_TOOLS;
+    const name = await installExtension(REACT_DEVELOPER_TOOLS);
+    console.log(`Added Extension: ${name}`);
+  } catch (err) {
+    console.log('An error occurred installing DevTools: ', err);
+  }
+}
 
 function createWindow() {
     // Create the browser window.
@@ -189,7 +216,18 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  if (process.env.NODE_ENV === 'development') {
+    await installDevTools();
+  }
+  createWindow();
+
+  // Add keyboard shortcuts
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
+    // Opens DevTools in the main window
+    BrowserWindow.getFocusedWindow().webContents.openDevTools();
+  });
+});
 
 // Quit when all windows are closed.
 app.on('window-all-closed', () => {

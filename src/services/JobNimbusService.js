@@ -1,3 +1,4 @@
+// JobNimbusService.js
 const { ipcRenderer } = window.require('electron');
 
 class JobNimbusService {
@@ -61,6 +62,37 @@ class JobNimbusService {
       return filePath;
     } catch (error) {
       console.error(`Error downloading document ${fileName}:`, error);
+      throw error;
+    }
+  }
+
+  // New method to download multiple documents for a contact
+  async downloadContactDocuments(contactId) {
+    try {
+      const docs = await this.getContactDocuments(contactId);
+      if (!docs.files || !docs.files.length) {
+        return [];
+      }
+
+      const downloadPromises = docs.files.map(async (doc) => {
+        try {
+          const localPath = await this.downloadDocument(doc.jnid, doc.filename);
+          return {
+            filename: doc.filename,
+            downloadUrl: `file://${localPath}`,
+            contentType: doc.content_type,
+            localPath
+          };
+        } catch (error) {
+          console.error(`Failed to download document ${doc.filename}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(downloadPromises);
+      return results.filter(result => result !== null);
+    } catch (error) {
+      console.error('Failed to download contact documents:', error);
       throw error;
     }
   }

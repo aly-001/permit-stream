@@ -1,0 +1,1298 @@
+Main goal: create enmax permit automation software
+Goal: be able to retrieve the files from jobNimbus, download them, and store the local file paths to be used in the automation process
+
+Relevant files:
+
+1. ContactContext.js
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import JobNimbusService from '../services/JobNimbusService';
+
+const ContactContext = createContext();
+
+const processContact = (rawContact) => {
+  // Calculate month offset and day from estimated install date
+  const calculatePlannedDate = (timestamp) => {
+    if (!timestamp) return { month_offset: 3, day: 15 }; // Default values if no timestamp
+
+    const currentDate = new Date();
+    const installDate = new Date(timestamp * 1000); // Convert Unix timestamp to milliseconds
+
+    // Calculate months between dates
+    let monthOffset = (installDate.getFullYear() - currentDate.getFullYear()) * 12 + 
+                     (installDate.getMonth() - currentDate.getMonth());
+    
+    // If monthOffset is negative, default to 3
+    monthOffset = monthOffset < 0 ? 3 : monthOffset;
+
+    return {
+      month_offset: monthOffset,
+      day: installDate.getDate()
+    };
+  };
+
+  const plannedDate = calculatePlannedDate(rawContact['Est Install Date'] || rawContact.cf_date_1);
+
+  return {
+    id: rawContact.recid,
+    site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
+    planned_date: plannedDate,
+    city: rawContact.city || "cat",
+    postal_code: rawContact.zip || "cat",
+    current_energy_consumption: rawContact.Consumption_Kwh?.toString() || rawContact.cf_double_2?.toString() || "",
+    projected_energy_production: rawContact.Production_kWh?.toString() || rawContact.cf_double_3?.toString() || "",
+    energy_source: "Solar",
+    generator_type: "Synchronous",
+    ac_capacity: rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
+    required_documents: [
+      "Electrical single-line diagram",
+      "Site plan",
+      "Inverter specification",
+      "Solar panel specifications",
+      "Bidirectional meter installation acknowledgement",
+    ],
+    documents: [
+      {
+        filename: "sample-diagram.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/sample-diagram.pdf",
+        contentType: "application/pdf",
+      },
+      {
+        filename: "site-plan.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/site-plan.pdf",
+        contentType: "application/pdf",
+      },
+      {
+        filename: "inverter-specs.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/inverter-specs.pdf",
+        contentType: "application/pdf",
+      }
+    ],
+    contact: {
+      name: rawContact.display_name || "cat",
+      phone: rawContact.home_phone || rawContact.mobile_phone || rawContact.work_phone || "",
+      email: rawContact.email || "cat",
+      preferred_method: "email",
+    },
+  };
+};
+
+export function ContactProvider({ children }) {
+  const [contacts, setContacts] = useState([]);
+  const [currentContact, setCurrentContact] = useState(null);
+  const [display, setDisplay] = useState('info');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredContacts, setFilteredContacts] = useState([]);
+
+  const jobNimbusService = new JobNimbusService("m2ud7n7j67nzk6x0");
+
+  useEffect(() => {
+    const fetchContacts = async () => {
+      try {
+        const response = await jobNimbusService.getContacts();
+        
+        console.log('Raw Contact Data:', response.results);
+
+        const contactsData = response.results.map(contact => processContact(contact));
+
+        const sortedContacts = contactsData.sort((a, b) => b.date_created - a.date_created);
+        setContacts(sortedContacts);
+        setFilteredContacts(sortedContacts);
+        setCurrentContact(sortedContacts[0]);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching contacts:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchContacts();
+  }, []);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredContacts(contacts);
+      return;
+    }
+
+    const filtered = contacts.filter(contact => 
+      contact.contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.contact.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredContacts(filtered);
+  }, [searchTerm, contacts]);
+
+  return (
+    <ContactContext.Provider 
+      value={{ 
+        contacts,
+        filteredContacts,
+        setContacts, 
+        currentContact, 
+        setCurrentContact,
+        display,
+        setDisplay,
+        loading,
+        error,
+        searchTerm,
+        setSearchTerm
+      }}
+    >
+      {children}
+    </ContactContext.Provider>
+  );
+}
+
+export function useContacts() {
+  const context = useContext(ContactContext);
+  if (!context) {
+    throw new Error('useContacts must be used within a ContactProvider');
+  }
+  return context;
+}
+
+2. JobNimbusService.js
+const { ipcRenderer } = window.require('electron');
+
+class JobNimbusService {
+  constructor(apiToken) {
+    this.config = {
+      apiToken,
+      baseUrl: 'https://app.jobnimbus.com/api1'
+    };
+  }
+
+  async request(endpoint, options = {}) {
+    try {
+      const response = await ipcRenderer.invoke('api-request', {
+        url: `${this.config.baseUrl}${endpoint}`,
+        options: {
+          method: options.method || 'GET',
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiToken}`,
+            'Accept': 'application/json'
+          }
+        }
+      });
+      
+      console.log('API Response:', response);
+
+      if (response.status === 401) {
+        throw new Error('Authentication failed - please check your API token');
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('JobNimbusService Error:', error);
+      throw error;
+    }
+  }
+
+  async getContacts() {
+    return this.request('/contacts');
+  }
+
+  async getContactById(contactId) {
+    return this.request(`/contacts/${contactId}`);
+  }
+
+  async getContactDocuments(contactId) {
+    console.log(`Fetching documents for contact ID: ${contactId}`);
+    const timestamp = Date.now();
+    const response = await this.request('/files', {
+      method: 'GET',
+      params: {
+        grid: 'document',
+        webui: 'yes',
+        fields: 'content_type,filename,jnid,esign,size,pages,date_updated,related,description,date_created,date_file_created,record_type_name,created_by_name,created_by,report',
+        related: contactId,
+        size: 0,
+        _: timestamp
+      }
+    });
+    console.log('~~~~~~~Documents response:', response);
+    return response;
+  }
+
+  getDocumentDownloadUrl(documentId) {
+    return `${this.config.baseUrl}/files/${documentId}`;
+  }
+}
+
+export default JobNimbusService;
+
+Currently everything works, except as you can see, the files in ContactContext
+are dummy. This means that you need to 
+
+- implement the downloading 
+- retireve the file paths
+- replace the dummy file paths with the real file paths
+
+
+Note that I'm using electron with react. Here's my main.js
+
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+const https = require('https');
+
+// Add error handling for @electron/remote
+let remoteMain;
+try {
+  remoteMain = require('@electron/remote/main');
+  remoteMain.initialize();
+} catch (e) {
+  console.error('Failed to initialize @electron/remote:', e);
+}
+
+ipcMain.handle('api-request', async (event, { url, options }) => {
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const req = https.request(url, {
+        ...options,
+        headers: options.headers
+      }, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          // Log the raw response for debugging
+          console.log('Raw response:', data);
+          console.log('Status code:', res.statusCode);
+
+          // Handle authentication failure
+          if (res.statusCode === 401) {
+            resolve({
+              ok: false,
+              statusText: data.trim(), // Use the raw error message
+              data: null,
+              status: 401
+            });
+            return;
+          }
+
+          // For successful responses, try to parse JSON
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve({
+                ok: true,
+                statusText: res.statusMessage,
+                data: jsonData,
+                status: res.statusCode
+              });
+            } catch (error) {
+              resolve({
+                ok: false,
+                statusText: 'Invalid JSON response',
+                data: null,
+                status: res.statusCode
+              });
+            }
+          } else {
+            // For other error status codes
+            resolve({
+              ok: false,
+              statusText: data.trim() || res.statusMessage,
+              data: null,
+              status: res.statusCode
+            });
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      // Only write body if it exists and method isn't GET
+      if (options.body && options.method !== 'GET') {
+        req.write(JSON.stringify(options.body));
+      }
+      
+      req.end();
+    });
+
+    return response;
+  } catch (error) {
+    console.error('API Request Error:', error);
+    return {
+      ok: false,
+      statusText: error.message,
+      data: null,
+      status: 500
+    };
+  }
+});
+
+function createWindow() {
+    // Create the browser window.
+    const mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            webviewTag: true,
+            enableRemoteModule: true,
+            webSecurity: true,
+        }
+    });
+
+    if (remoteMain) {
+        remoteMain.enable(mainWindow.webContents);
+    }
+
+    // Add download handler
+    mainWindow.webContents.session.on('will-download', (event, item, webContents) => {
+        item.once('done', (event, state) => {
+            if (state === 'completed') {
+                console.log('Download completed');
+            } else {
+                console.log('Download failed');
+            }
+        });
+    });
+
+    // Load the index.html file
+    const isDev = process.env.NODE_ENV === 'development';
+    mainWindow.loadURL(
+        isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, 'index.html')}`
+    );
+
+    // Open DevTools in development mode
+    mainWindow.webContents.openDevTools();
+}
+
+app.whenReady().then(createWindow);
+
+// Quit when all windows are closed.
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
+});
+
+
+
+When I implement this, I get this kind of error.
+
+{
+    "ok": true,
+    "statusText": "OK",
+    "data": {
+        "count": 4,
+        "files": [
+            {
+                "content_type": "application/pdf",
+                "created_by": "m2t63xizl6pprq6lrhfpozh",
+                "created_by_name": "Alexander MacKenzie",
+                "customer": "m2t63wg9qa3s6jzkd63fzrd",
+                "date_created": 1730213317,
+                "date_file_created": 1730213317,
+                "date_updated": 1730213321,
+                "description": null,
+                "esign": null,
+                "exif": [],
+                "external_id": null,
+                "filename": "Fall Newsletter 2023.pdf",
+                "is_active": true,
+                "is_archived": false,
+                "is_inbound": false,
+                "is_inbound_inline": false,
+                "is_outbound": false,
+                "is_private": false,
+                "is_uploading": false,
+                "jnid": "m2ukc3ugwl2ekpjs",
+                "md5": null,
+                "merged": null,
+                "owners": [
+                    {
+                        "id": "m2t63xizl6pprq6lrhfpozh"
+                    }
+                ],
+                "pages": 4,
+                "primary": {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": "1007",
+                    "subject": null,
+                    "type": "contact"
+                },
+                "record_type": 1,
+                "record_type_name": "Document",
+                "related": [
+                    {
+                        "email": null,
+                        "id": "m2uizmvfpfvvur9v2gulyz4",
+                        "name": "Mery Beltran",
+                        "number": null,
+                        "subject": null,
+                        "type": "contact"
+                    }
+                ],
+                "report": null,
+                "rules": [],
+                "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+                "size": 9860428,
+                "subtype": null,
+                "type": "attachment"
+            },
+            {
+                "content_type": "application/pdf",
+                "created_by": "m2t63xizl6pprq6lrhfpozh",
+                "created_by_name": "Alexander MacKenzie",
+                "customer": "m2t63wg9qa3s6jzkd63fzrd",
+                "date_created": 1730213285,
+                "date_file_created": 1730213285,
+                "date_updated": 1730213288,
+                "description": null,
+                "esign": null,
+                "exif": [],
+                "external_id": null,
+                "filename": "Copy of 2024 Summer Newsletter Print.pdf",
+                "is_active": true,
+                "is_archived": false,
+                "is_inbound": false,
+                "is_inbound_inline": false,
+                "is_outbound": false,
+                "is_private": false,
+                "is_uploading": false,
+                "jnid": "m2ukbevqqefsgz7d",
+                "md5": null,
+                "merged": null,
+                "owners": [
+                    {
+                        "id": "m2t63xizl6pprq6lrhfpozh"
+                    }
+                ],
+                "pages": 8,
+                "primary": {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": "1007",
+                    "subject": null,
+                    "type": "contact"
+                },
+                "record_type": 1,
+                "record_type_name": "Document",
+                "related": [
+                    {
+                        "email": null,
+                        "id": "m2uizmvfpfvvur9v2gulyz4",
+                        "name": "Mery Beltran",
+                        "number": null,
+                        "subject": null,
+                        "type": "contact"
+                    }
+                ],
+                "report": null,
+                "rules": [],
+                "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+                "size": 15960250,
+                "subtype": null,
+                "type": "attachment"
+            },
+            {
+                "content_type": "image/png",
+                "created_by": "m2t63xizl6pprq6lrhfpozh",
+                "created_by_name": "Alexander MacKenzie",
+                "customer": "m2t63wg9qa3s6jzkd63fzrd",
+                "date_created": 1730213236,
+                "date_file_created": 1730213236,
+                "date_updated": 1730213243,
+                "description": null,
+                "esign": null,
+                "exif": [],
+                "external_id": null,
+                "filename": "Solar YYC Wallpaper 2.png",
+                "is_active": true,
+                "is_archived": false,
+                "is_inbound": false,
+                "is_inbound_inline": false,
+                "is_outbound": false,
+                "is_private": false,
+                "is_uploading": false,
+                "jnid": "m2ukacgdkpq5cgpt",
+                "md5": null,
+                "merged": null,
+                "owners": [
+                    {
+                        "id": "m2t63xizl6pprq6lrhfpozh"
+                    }
+                ],
+                "pages": null,
+                "primary": {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": "1007",
+                    "subject": null,
+                    "type": "contact"
+                },
+                "record_type": 1,
+                "record_type_name": "Document",
+                "related": [
+                    {
+                        "email": null,
+                        "id": "m2uizmvfpfvvur9v2gulyz4",
+                        "name": "Mery Beltran",
+                        "number": null,
+                        "subject": null,
+                        "type": "contact"
+                    }
+                ],
+                "report": null,
+                "rules": [],
+                "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+                "size": 523592,
+                "subtype": null,
+                "type": "attachment"
+            },
+            {
+                "content_type": "application/pdf",
+                "created_by": "m2t63xizl6pprq6lrhfpozh",
+                "created_by_name": "Alexander MacKenzie",
+                "customer": "m2t63wg9qa3s6jzkd63fzrd",
+                "date_created": 1730130528,
+                "date_file_created": 1730130528,
+                "date_updated": 1730130532,
+                "filename": "l1.pdf",
+                "is_active": true,
+                "is_archived": false,
+                "is_private": false,
+                "jnid": "m2t71n6cc7tx7qeq",
+                "owners": [],
+                "pages": 38,
+                "primary": {
+                    "id": "m2t6sjxr6v7sbm69q2bjcl4",
+                    "name": "John Doe",
+                    "number": "1002",
+                    "type": "job"
+                },
+                "record_type": 2,
+                "record_type_name": "Photo",
+                "related": [
+                    {
+                        "id": "m2t6sjxr6v7sbm69q2bjcl4",
+                        "name": "John Doe",
+                        "type": "job"
+                    }
+                ],
+                "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+                "size": 1120544,
+                "type": "attachment"
+            }
+        ]
+    },
+    "status": 200
+}
+
+So the API response is good.
+
+Here's the documents response:
+
+{
+    "count": 4,
+    "files": [
+        {
+            "content_type": "application/pdf",
+            "created_by": "m2t63xizl6pprq6lrhfpozh",
+            "created_by_name": "Alexander MacKenzie",
+            "customer": "m2t63wg9qa3s6jzkd63fzrd",
+            "date_created": 1730213317,
+            "date_file_created": 1730213317,
+            "date_updated": 1730213321,
+            "description": null,
+            "esign": null,
+            "exif": [],
+            "external_id": null,
+            "filename": "Fall Newsletter 2023.pdf",
+            "is_active": true,
+            "is_archived": false,
+            "is_inbound": false,
+            "is_inbound_inline": false,
+            "is_outbound": false,
+            "is_private": false,
+            "is_uploading": false,
+            "jnid": "m2ukc3ugwl2ekpjs",
+            "md5": null,
+            "merged": null,
+            "owners": [
+                {
+                    "id": "m2t63xizl6pprq6lrhfpozh"
+                }
+            ],
+            "pages": 4,
+            "primary": {
+                "email": null,
+                "id": "m2uizmvfpfvvur9v2gulyz4",
+                "name": "Mery Beltran",
+                "number": "1007",
+                "subject": null,
+                "type": "contact"
+            },
+            "record_type": 1,
+            "record_type_name": "Document",
+            "related": [
+                {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": null,
+                    "subject": null,
+                    "type": "contact"
+                }
+            ],
+            "report": null,
+            "rules": [],
+            "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+            "size": 9860428,
+            "subtype": null,
+            "type": "attachment"
+        },
+        {
+            "content_type": "application/pdf",
+            "created_by": "m2t63xizl6pprq6lrhfpozh",
+            "created_by_name": "Alexander MacKenzie",
+            "customer": "m2t63wg9qa3s6jzkd63fzrd",
+            "date_created": 1730213285,
+            "date_file_created": 1730213285,
+            "date_updated": 1730213288,
+            "description": null,
+            "esign": null,
+            "exif": [],
+            "external_id": null,
+            "filename": "Copy of 2024 Summer Newsletter Print.pdf",
+            "is_active": true,
+            "is_archived": false,
+            "is_inbound": false,
+            "is_inbound_inline": false,
+            "is_outbound": false,
+            "is_private": false,
+            "is_uploading": false,
+            "jnid": "m2ukbevqqefsgz7d",
+            "md5": null,
+            "merged": null,
+            "owners": [
+                {
+                    "id": "m2t63xizl6pprq6lrhfpozh"
+                }
+            ],
+            "pages": 8,
+            "primary": {
+                "email": null,
+                "id": "m2uizmvfpfvvur9v2gulyz4",
+                "name": "Mery Beltran",
+                "number": "1007",
+                "subject": null,
+                "type": "contact"
+            },
+            "record_type": 1,
+            "record_type_name": "Document",
+            "related": [
+                {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": null,
+                    "subject": null,
+                    "type": "contact"
+                }
+            ],
+            "report": null,
+            "rules": [],
+            "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+            "size": 15960250,
+            "subtype": null,
+            "type": "attachment"
+        },
+        {
+            "content_type": "image/png",
+            "created_by": "m2t63xizl6pprq6lrhfpozh",
+            "created_by_name": "Alexander MacKenzie",
+            "customer": "m2t63wg9qa3s6jzkd63fzrd",
+            "date_created": 1730213236,
+            "date_file_created": 1730213236,
+            "date_updated": 1730213243,
+            "description": null,
+            "esign": null,
+            "exif": [],
+            "external_id": null,
+            "filename": "Solar YYC Wallpaper 2.png",
+            "is_active": true,
+            "is_archived": false,
+            "is_inbound": false,
+            "is_inbound_inline": false,
+            "is_outbound": false,
+            "is_private": false,
+            "is_uploading": false,
+            "jnid": "m2ukacgdkpq5cgpt",
+            "md5": null,
+            "merged": null,
+            "owners": [
+                {
+                    "id": "m2t63xizl6pprq6lrhfpozh"
+                }
+            ],
+            "pages": null,
+            "primary": {
+                "email": null,
+                "id": "m2uizmvfpfvvur9v2gulyz4",
+                "name": "Mery Beltran",
+                "number": "1007",
+                "subject": null,
+                "type": "contact"
+            },
+            "record_type": 1,
+            "record_type_name": "Document",
+            "related": [
+                {
+                    "email": null,
+                    "id": "m2uizmvfpfvvur9v2gulyz4",
+                    "name": "Mery Beltran",
+                    "number": null,
+                    "subject": null,
+                    "type": "contact"
+                }
+            ],
+            "report": null,
+            "rules": [],
+            "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+            "size": 523592,
+            "subtype": null,
+            "type": "attachment"
+        },
+        {
+            "content_type": "application/pdf",
+            "created_by": "m2t63xizl6pprq6lrhfpozh",
+            "created_by_name": "Alexander MacKenzie",
+            "customer": "m2t63wg9qa3s6jzkd63fzrd",
+            "date_created": 1730130528,
+            "date_file_created": 1730130528,
+            "date_updated": 1730130532,
+            "filename": "l1.pdf",
+            "is_active": true,
+            "is_archived": false,
+            "is_private": false,
+            "jnid": "m2t71n6cc7tx7qeq",
+            "owners": [],
+            "pages": 38,
+            "primary": {
+                "id": "m2t6sjxr6v7sbm69q2bjcl4",
+                "name": "John Doe",
+                "number": "1002",
+                "type": "job"
+            },
+            "record_type": 2,
+            "record_type_name": "Photo",
+            "related": [
+                {
+                    "id": "m2t6sjxr6v7sbm69q2bjcl4",
+                    "name": "John Doe",
+                    "type": "job"
+                }
+            ],
+            "sales_rep": "m2t63xizl6pprq6lrhfpozh",
+            "size": 1120544,
+            "type": "attachment"
+        }
+    ]
+}
+
+But then I get stuff like
+
+Error downloading document: Fall Newsletter 2023.pdf: Error: Error invoking remote method 'download-file': Error: Failed to download: 404
+    at EventEmitter.invoke (node:electron/js2c/renderer_init:2:7630)
+
+
+When I download a document though JobNimbus web, I get this:
+
+Request URL:
+https://app.jobnimbus.com/api1/files/m2ukc3ugwl2ekpjs?download=1
+Request Method:
+GET
+Status Code:
+302 Found
+Remote Address:
+54.192.51.30:443
+Referrer Policy:
+strict-origin-when-cross-origin
+access-control-allow-credentials:
+true
+access-control-allow-headers:
+dnt,x-customheader,keep-alive,user-agent,x-requested-with,if-modified-since,cache-control,content-type,authorization,accept,origin,referer,x-csrf-token,range,jn-version,jnauth,jnversion,manufacturer,device,platform,osversion,appversion,appbuild,csrf-token,withcredentials,content-transfer-encoding,custom-header-1,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,grpc-timeout,x-grpc-web,token,guestauth,grpc-accept-encoding,accept-encoding,x-forwarded-for
+access-control-allow-methods:
+GET,PUT,POST,OPTIONS,HEAD,DELETE,PATCH
+access-control-allow-origin:
+https://webappui.jobnimbus.com
+access-control-expose-headers:
+Content-Disposition
+content-disposition:
+attachment; filename=Fall%20Newsletter%202023.pdf
+content-encoding:
+br
+content-type:
+text/html; charset=utf-8
+date:
+Sat, 02 Nov 2024 14:26:46 GMT
+location:
+https://files.jobnimbus.com/m2t63wg9qa3s6jzkd63fzrd/m2ukc3ugwl2ekpjs?response-content-disposition=attachment%3B%20filename%3D%22Fall%20Newsletter%202023.pdf%22&Expires=1730558506&Key-Pair-Id=K1C981RIIGG0XP&Signature=tdjFQJEtGHee7XcSVZfO30g6a81RGl1MFjSgXtONfjLwxaDTpBC0vBPyC0JKorFjJbU6HK4ELXxj77F7Vw03aTmWUSOl1zGQ~gHdLVTKf-SWt25ZD-UcAvAyXSgP7aqYsW~zgWohInj9diQunK~1Bdu2XNlVS1O4x4hmhbvpivn1oWcboVR0FHixNssiqgEcKVocDKDY2FdDRBbFMfZcPyaBu1BAb~g9T-xGCrzqdo9h96BjnpQjn~9jY36oUkD1aD2cqc86veVqggvgRD9RNOvLIoZxxaf4Lw64TRhVQPohIChZnrhFZi4BwTb99gYpwVn7PhEI1EFLUBQ8qpRUUQ__
+vary:
+Accept-Encoding
+via:
+1.1 8422f3871db2552d4ad0cc9f31e22c2e.cloudfront.net (CloudFront)
+x-amz-cf-id:
+ibcNHavF6Fnlm9GgK0b9_9I5Pk-UJc5lK92R16SIMQvR5EiiDMKD-A==
+x-amz-cf-pop:
+YUL62-C2
+x-cache:
+Miss from cloudfront
+:authority:
+app.jobnimbus.com
+:method:
+GET
+:path:
+/api1/files/m2ukc3ugwl2ekpjs?download=1
+:scheme:
+https
+accept:
+*/*
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-US,en;q=0.9
+authorization:
+Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJrZXkiOiJtMnQ2M3hpemw2cHBycTZscmhmcG96aCIsInVzZXJJZCI6Im0ydDYzeGl6bDZwcHJxNmxyaGZwb3poIiwiY29tcGFueUlkIjoibTJ0NjN3ZzlxYTNzNmp6a2Q2M2Z6cmQiLCJhY2Nlc3MiOnsic2V0dGluZ3MiOnRydWUsInByaXZhdGVEb2N1bWVudEFjY2VzcyI6dHJ1ZX0sInNjb3BlIjoiZXN0aW1hdGU6cmVhZCBlc3RpbWF0ZTp3cml0ZSBlc3RpbWF0ZTp1cGRhdGUgZXN0aW1hdGU6ZGVsZXRlIGNlbnRyYWxfZG9jdW1lbnQ6cmVhZCBjZW50cmFsX2RvY3VtZW50OndyaXRlIGNlbnRyYWxfZG9jdW1lbnQ6dXBkYXRlIGNlbnRyYWxfZG9jdW1lbnQ6ZGVsZXRlIHByb3Bvc2FsOnJlYWQgcHJvcG9zYWw6d3JpdGUgcHJvcG9zYWw6dXBkYXRlIHByb3Bvc2FsOmRlbGV0ZSBidWRnZXQ6cmVhZCBidWRnZXQ6d3JpdGUgYnVkZ2V0OnVwZGF0ZSBidWRnZXQ6ZGVsZXRlIGZpbmFuY2lhbHM6cHJvZHVjdDp3cml0ZSBnbG9iYWw6ZnVsbC1hY2Nlc3MgYmlsbGluZyBzZXR0aW5ncyB3ZWJfYWNjZXNzIiwicm9sZXMiOlsiQWNjZXNzUHJvZmlsZUFkbWluIl0sImlhdCI6MTczMDUzOTEwNCwianRpIjoibTJ6eWF1bWdjamVzYTFrZCIsImV4cCI6MTczMDU4OTUwNH0.eW6nhW2-gg_n8-LYmF1tjD6zYgOSNGCqlrrtZBrb_pM
+dnt:
+1
+origin:
+https://webappui.jobnimbus.com
+priority:
+u=1, i
+referer:
+https://webappui.jobnimbus.com/
+sec-ch-ua:
+"Not?A_Brand";v="99", "Chromium";v="130"
+sec-ch-ua-mobile:
+?0
+sec-ch-ua-platform:
+"macOS"
+sec-fetch-dest:
+empty
+sec-fetch-mode:
+cors
+sec-fetch-site:
+same-site
+user-agent:
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36
+
+
+Then, when I implement the code to use this, I get:
+
+Attempting to download: Fall Newsletter 2023.pdf (ID: m2ukc3ugwl2ekpjs)
+JobNimbusService.js:77 Download URL: https://app.jobnimbus.com/api1/files/m2ukc3ugwl2ekpjs?download=1
+JobNimbusService.js:94 Error downloading document Fall Newsletter 2023.pdf: Error: Error invoking remote method 'download-file': Error: Failed to download: 401
+    at EventEmitter.invoke (node:electron/js2c/renderer_init:2:7630)
+_callee5$ @ JobNimbusService.js:94
+tryCatch @ JobNimbusService.js:2
+(anonymous) @ JobNimbusService.js:2
+(anonymous) @ JobNimbusService.js:2
+asyncGeneratorStep @ JobNimbusService.js:2
+_throw @ JobNimbusService.js:2
+Promise.then (async)
+asyncGeneratorStep @ JobNimbusService.js:2
+_next @ JobNimbusService.js:2
+(anonymous) @ JobNimbusService.js:2
+(anonymous) @ JobNimbusService.js:2
+downloadDocument @ JobNimbusService.js:73
+_callee$ @ ContactContext.js:37
+tryCatch @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+asyncGeneratorStep @ ContactContext.js:2
+_next @ ContactContext.js:2
+Promise.then (async)
+asyncGeneratorStep @ ContactContext.js:2
+_next @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+processContact @ ContactContext.js:6
+(anonymous) @ ContactContext.js:126
+_callee2$ @ ContactContext.js:126
+tryCatch @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+asyncGeneratorStep @ ContactContext.js:2
+_next @ ContactContext.js:2
+Promise.then (async)
+asyncGeneratorStep @ ContactContext.js:2
+_next @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+(anonymous) @ ContactContext.js:2
+fetchContacts @ ContactContext.js:119
+(anonymous) @ ContactContext.js:141
+commitHookEffectListMount @ react-dom.development.js:23189
+commitPassiveMountOnFiber @ react-dom.development.js:24970
+commitPassiveMountEffects_complete @ react-dom.development.js:24930
+commitPassiveMountEffects_begin @ react-dom.development.js:24917
+commitPassiveMountEffects @ react-dom.development.js:24905
+flushPassiveEffectsImpl @ react-dom.development.js:27078
+flushPassiveEffects @ react-dom.development.js:27023
+(anonymous) @ react-dom.development.js:26808
+workLoop @ scheduler.development.js:266
+flushWork @ scheduler.development.js:239
+performWorkUntilDeadline @ scheduler.development.js:533
+processImmediate @ node:internal/timers:476
+ContactContext.js:45 Error processing document Fall Newsletter 2023.pdf: Error: Error invoking remote method 'download-file': Error: Failed to download: 401
+    at EventEmitter.invoke (node:electron/js2c/renderer_init:2:7630)
+
+
+So more 401 errors.
+
+Here are more network request stuffs
+
+Request URL:
+https://app.hubspot.com/api/cartographer/v1/ipl
+Request Method:
+POST
+Status Code:
+204 No Content
+Remote Address:
+104.16.117.116:443
+Referrer Policy:
+strict-origin-when-cross-origin
+access-control-allow-credentials:
+true
+access-control-allow-headers:
+Authorization, authorization, Origin, origin, X-Requested-With, x-requested-with, Content-Type, content-type, Accept, accept, Accept-Charset, accept-charset, Accept-Encoding, accept-encoding, X-Override-Internal-Permissions, x-override-internal-permissions, X-Properties-Source, x-properties-source, X-Properties-SourceId, x-properties-sourceid, X-Properties-Flag, x-properties-flag, X-Hubspot-User-Id, x-hubspot-user-id, X-Hubspot-Trace, x-hubspot-trace, X-Hubspot-Callee, x-hubspot-callee, X-Hubspot-Offset, x-hubspot-offset, X-Hubspot-No-Trace, x-hubspot-no-trace, X-HubSpot-Static-App-Info, x-hubspot-static-app-info, X-HubSpot-Messages-Uri, x-hubspot-messages-uri, X-HubSpot-Request-Source, x-hubspot-request-source, X-HubSpot-Request-Reason, x-hubspot-request-reason, Subscription-Billing-Auth-Token, subscription-billing-auth-token, X-App-CSRF, x-app-csrf, X-Tools-CSRF, x-tools-csrf, Online-Payment-Signing-UUID, online-payment-signing-uuid, X-Source, x-source, X-SourceId, x-sourceid, X-Origin-UserId, x-origin-userid, X-Biden-Request-Source, x-biden-request-source, X-HubSpot-CSRF-hubspotapi, x-hubspot-csrf-hubspotapi, X-Force-Cookie-Refresh, x-force-cookie-refresh, X-Force-Cookie-Refresh-No-Cache, x-force-cookie-refresh-no-cache, X-HS-User-Request, x-hs-user-request, X-Application-Id, x-application-id, X-HS-Referer, x-hs-referer, X-HubSpot-Dpl-Correlation-Group-Id, x-hubspot-dpl-correlation-group-id, X-HubSpot-Dpl-Parent-Log-Id, x-hubspot-dpl-parent-log-id, X-HS-InfraIdp-Engaged, x-hs-infraidp-engaged, traceparent, X-HsOpenTelemetry-Head-Sampling-Strategy, x-hsopentelemetry-head-sampling-strategy, x-hs-fingerprint
+access-control-allow-methods:
+GET, OPTIONS, PUT, POST, DELETE, PATCH, HEAD
+access-control-allow-origin:
+https://app.hubspot.com
+access-control-expose-headers:
+x-last-modified-timestamp, X-HubSpot-NotFound, x-hubspot-notfound, X-HS-User-Request, x-hs-user-request, Link, link, Server-Timing, server-timing, X-Hubspot-Correct-Hublet, x-hubspot-correct-hublet, X-HubSpot-Auth-Failure, x-hubspot-auth-failure, X-HubSpot-Correlation-Id, x-hubspot-correlation-id
+access-control-max-age:
+604800
+cf-cache-status:
+DYNAMIC
+cf-ray:
+8dc5068c8d18a313-YUL
+date:
+Sat, 02 Nov 2024 15:05:55 GMT
+nel:
+{"success_fraction":0.01,"report_to":"cf-nel","max_age":604800}
+report-to:
+{"endpoints":[{"url":"https:\/\/a.nel.cloudflare.com\/report\/v4?s=tVkgXomw53Mp5g4vuMnX%2BPUrHcFLL9dRQI9eEc3IM2KAKYqQijdP%2B3R7e8uNp%2FIVGzyvPxiaAFMpUxUXsBtesuWnZB0wL9Cw5RYiQRK6cfw7BTPUXjLPiOGLQ6lW0yUE3A%3D%3D"}],"group":"cf-nel","max_age":604800}
+server:
+cloudflare
+server-timing:
+hcid;desc=70c9cd92-9fec-481d-8e7a-34d864b0fe21
+strict-transport-security:
+max-age=31536000; includeSubDomains; preload
+timing-allow-origin:
+*
+vary:
+origin, Accept-Encoding
+x-content-type-options:
+nosniff
+x-hubspot-correlation-id:
+70c9cd92-9fec-481d-8e7a-34d864b0fe21
+:authority:
+app.hubspot.com
+:method:
+POST
+:path:
+/api/cartographer/v1/ipl
+:scheme:
+https
+accept:
+*/*
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-US,en;q=0.9
+content-length:
+1396
+content-type:
+text/plain;charset=UTF-8
+cookie:
+_cfuvid=pORk1OgQFyKDiTyaPsLMAqLGcRbDcdalfclrFYTiYNI-1730539084656-0.0.1.1-604800000; __cf_bm=vRGS3nBD46Gc7cgZ9Leow6UYLpZaYqs2P8vsTBp5mGo-1730559892-1.0.1.1-c_5wnW4.cHQBHi.aNtRCmaiWtCWYv5rcgn3.YJ_OYgUzHSPFXhYFFX4RSSnIf26Zz2uWyVtVkhHz0awPNtj5_Q
+dnt:
+1
+origin:
+https://app.hubspot.com
+priority:
+u=4, i
+referer:
+https://app.hubspot.com/conversations-visitor/3409122/threads/utk/31c15bca3c9e4ce1941208d013a50eec?uuid=400e60eda30a41d798c5e784c6ea17c5&mobile=false&mobileSafari=false&hideWelcomeMessage=false&hstc=&domain=app.jobnimbus.com&inApp53=false&messagesUtk=31c15bca3c9e4ce1941208d013a50eec&url=https%3A%2F%2Fapp.jobnimbus.com%2Fcontact%2Fm2uizmvfpfvvur9v2gulyz4&inline=false&isFullscreen=false&globalCookieOptOut=&isFirstVisitorSession=false&isAttachmentDisabled=false&isInitialInputFocusDisabled=false&enableWidgetCookieBanner=false&isInCMS=false&hideScrollToButton=true&isIOSMobile=false
+sec-ch-ua:
+"Not?A_Brand";v="99", "Chromium";v="130"
+sec-ch-ua-mobile:
+?0
+sec-ch-ua-platform:
+"macOS"
+sec-fetch-dest:
+empty
+sec-fetch-mode:
+no-cors
+sec-fetch-site:
+same-origin
+user-agent:
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36
+
+Request URL:
+https://app.jobnimbus.com/api1/files/m2ukc3ugwl2ekpjs?download=1
+Request Method:
+OPTIONS
+Status Code:
+204 No Content
+Remote Address:
+54.192.51.112:443
+Referrer Policy:
+strict-origin-when-cross-origin
+access-control-allow-credentials:
+true
+access-control-allow-headers:
+dnt,x-customheader,keep-alive,user-agent,x-requested-with,if-modified-since,cache-control,content-type,authorization,accept,origin,referer,x-csrf-token,range,jn-version,jnauth,jnversion,manufacturer,device,platform,osversion,appversion,appbuild,csrf-token,withcredentials,content-transfer-encoding,custom-header-1,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,grpc-timeout,x-grpc-web,token,guestauth,grpc-accept-encoding,accept-encoding,x-forwarded-for
+access-control-allow-methods:
+GET,PUT,POST,OPTIONS,HEAD,DELETE,PATCH
+access-control-allow-origin:
+https://webappui.jobnimbus.com
+date:
+Sat, 02 Nov 2024 15:06:18 GMT
+via:
+1.1 ac1cb1fdb7cf3984f94f9f190169eb3a.cloudfront.net (CloudFront)
+x-amz-cf-id:
+pMd2ZCFYkqTWq7phVzugA4-jw4nyNZqH2CpMDdtWXMXbwDXFF-5TSQ==
+x-amz-cf-pop:
+YUL62-C2
+x-cache:
+Miss from cloudfront
+:authority:
+app.jobnimbus.com
+:method:
+OPTIONS
+:path:
+/api1/files/m2ukc3ugwl2ekpjs?download=1
+:scheme:
+https
+accept:
+*/*
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-US,en;q=0.9
+access-control-request-headers:
+authorization
+access-control-request-method:
+GET
+origin:
+https://webappui.jobnimbus.com
+priority:
+u=1, i
+referer:
+https://webappui.jobnimbus.com/
+sec-fetch-dest:
+empty
+sec-fetch-mode:
+cors
+sec-fetch-site:
+same-site
+user-agent:
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36
+
+Request URL:
+https://app.jobnimbus.com/api1/files/m2ukc3ugwl2ekpjs?download=1
+Request Method:
+GET
+Status Code:
+302 Found
+Remote Address:
+54.192.51.112:443
+Referrer Policy:
+strict-origin-when-cross-origin
+access-control-allow-credentials:
+true
+access-control-allow-headers:
+dnt,x-customheader,keep-alive,user-agent,x-requested-with,if-modified-since,cache-control,content-type,authorization,accept,origin,referer,x-csrf-token,range,jn-version,jnauth,jnversion,manufacturer,device,platform,osversion,appversion,appbuild,csrf-token,withcredentials,content-transfer-encoding,custom-header-1,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,grpc-timeout,x-grpc-web,token,guestauth,grpc-accept-encoding,accept-encoding,x-forwarded-for
+access-control-allow-methods:
+GET,PUT,POST,OPTIONS,HEAD,DELETE,PATCH
+access-control-allow-origin:
+https://webappui.jobnimbus.com
+access-control-expose-headers:
+Content-Disposition
+content-disposition:
+attachment; filename=Fall%20Newsletter%202023.pdf
+content-encoding:
+br
+content-type:
+text/html; charset=utf-8
+date:
+Sat, 02 Nov 2024 15:06:18 GMT
+location:
+https://files.jobnimbus.com/m2t63wg9qa3s6jzkd63fzrd/m2ukc3ugwl2ekpjs?response-content-disposition=attachment%3B%20filename%3D%22Fall%20Newsletter%202023.pdf%22&Expires=1730560878&Key-Pair-Id=K1C981RIIGG0XP&Signature=juRGChEmWrdG-y5t9Vpy7RRUeb0Tql-QNPlQJMa3e3uyJuskPocFGkUzRE89K6LTX8zRnDomqKTUL8zWSZLQmKxC86rycqKCQCmJoazVY0yp66Qgn19EvzVsoXRB2zFC9iJPKbUMRgrTBbJ0ucVJs9LDi6MYVKtGe-WcPjMXikktABJahBHUlm5QlQSY1sS3~oCcWEQ9HMI6o4ODTJHD~HnRO8zDLc~-fzHs1~RbomSZNGZspp7ugPewO1EGPAwgDLCTQz1nlJNnowBs25QZFp79jiPYvNI4GlxQrppeHj8Xn9GaNhhCT2Rv2HPa6CXOleDx6ic~RyHNQquRroxqtQ__
+vary:
+Accept-Encoding
+via:
+1.1 ac1cb1fdb7cf3984f94f9f190169eb3a.cloudfront.net (CloudFront)
+x-amz-cf-id:
+CsxmD28pUpoA44qkXZllz5tCZ0jHaU3kTTABTg53i-E6vDeG-epVLg==
+x-amz-cf-pop:
+YUL62-C2
+x-cache:
+Miss from cloudfront
+:authority:
+app.jobnimbus.com
+:method:
+GET
+:path:
+/api1/files/m2ukc3ugwl2ekpjs?download=1
+:scheme:
+https
+accept:
+*/*
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-US,en;q=0.9
+authorization:
+Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJrZXkiOiJtMnQ2M3hpemw2cHBycTZscmhmcG96aCIsInVzZXJJZCI6Im0ydDYzeGl6bDZwcHJxNmxyaGZwb3poIiwiY29tcGFueUlkIjoibTJ0NjN3ZzlxYTNzNmp6a2Q2M2Z6cmQiLCJhY2Nlc3MiOnsic2V0dGluZ3MiOnRydWUsInByaXZhdGVEb2N1bWVudEFjY2VzcyI6dHJ1ZX0sInNjb3BlIjoiZXN0aW1hdGU6cmVhZCBlc3RpbWF0ZTp3cml0ZSBlc3RpbWF0ZTp1cGRhdGUgZXN0aW1hdGU6ZGVsZXRlIGNlbnRyYWxfZG9jdW1lbnQ6cmVhZCBjZW50cmFsX2RvY3VtZW50OndyaXRlIGNlbnRyYWxfZG9jdW1lbnQ6dXBkYXRlIGNlbnRyYWxfZG9jdW1lbnQ6ZGVsZXRlIHByb3Bvc2FsOnJlYWQgcHJvcG9zYWw6d3JpdGUgcHJvcG9zYWw6dXBkYXRlIHByb3Bvc2FsOmRlbGV0ZSBidWRnZXQ6cmVhZCBidWRnZXQ6d3JpdGUgYnVkZ2V0OnVwZGF0ZSBidWRnZXQ6ZGVsZXRlIGZpbmFuY2lhbHM6cHJvZHVjdDp3cml0ZSBnbG9iYWw6ZnVsbC1hY2Nlc3MgYmlsbGluZyBzZXR0aW5ncyB3ZWJfYWNjZXNzIiwicm9sZXMiOlsiQWNjZXNzUHJvZmlsZUFkbWluIl0sImlhdCI6MTczMDUzOTEwNCwianRpIjoibTJ6eWF1bWdjamVzYTFrZCIsImV4cCI6MTczMDU4OTUwNH0.eW6nhW2-gg_n8-LYmF1tjD6zYgOSNGCqlrrtZBrb_pM
+dnt:
+1
+origin:
+https://webappui.jobnimbus.com
+priority:
+u=1, i
+referer:
+https://webappui.jobnimbus.com/
+sec-ch-ua:
+"Not?A_Brand";v="99", "Chromium";v="130"
+sec-ch-ua-mobile:
+?0
+sec-ch-ua-platform:
+"macOS"
+sec-fetch-dest:
+empty
+sec-fetch-mode:
+cors
+sec-fetch-site:
+same-site
+user-agent:
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36
+
+ipl
+m2ukc3ugwl2ekpjs?download=1
+m2ukc3ugwl2ekpjs?download=1
+ipl
+ipl
+ipl
+ipl
+7 / 38 requests
+7.0 kB / 9.9 MB transferred
+Request URL:
+https://app.hubspot.com/api/cartographer/v1/ipl
+Request Method:
+POST
+Status Code:
+204 No Content
+Remote Address:
+104.16.117.116:443
+Referrer Policy:
+strict-origin-when-cross-origin
+access-control-allow-credentials:
+true
+access-control-allow-headers:
+Authorization, authorization, Origin, origin, X-Requested-With, x-requested-with, Content-Type, content-type, Accept, accept, Accept-Charset, accept-charset, Accept-Encoding, accept-encoding, X-Override-Internal-Permissions, x-override-internal-permissions, X-Properties-Source, x-properties-source, X-Properties-SourceId, x-properties-sourceid, X-Properties-Flag, x-properties-flag, X-Hubspot-User-Id, x-hubspot-user-id, X-Hubspot-Trace, x-hubspot-trace, X-Hubspot-Callee, x-hubspot-callee, X-Hubspot-Offset, x-hubspot-offset, X-Hubspot-No-Trace, x-hubspot-no-trace, X-HubSpot-Static-App-Info, x-hubspot-static-app-info, X-HubSpot-Messages-Uri, x-hubspot-messages-uri, X-HubSpot-Request-Source, x-hubspot-request-source, X-HubSpot-Request-Reason, x-hubspot-request-reason, Subscription-Billing-Auth-Token, subscription-billing-auth-token, X-App-CSRF, x-app-csrf, X-Tools-CSRF, x-tools-csrf, Online-Payment-Signing-UUID, online-payment-signing-uuid, X-Source, x-source, X-SourceId, x-sourceid, X-Origin-UserId, x-origin-userid, X-Biden-Request-Source, x-biden-request-source, X-HubSpot-CSRF-hubspotapi, x-hubspot-csrf-hubspotapi, X-Force-Cookie-Refresh, x-force-cookie-refresh, X-Force-Cookie-Refresh-No-Cache, x-force-cookie-refresh-no-cache, X-HS-User-Request, x-hs-user-request, X-Application-Id, x-application-id, X-HS-Referer, x-hs-referer, X-HubSpot-Dpl-Correlation-Group-Id, x-hubspot-dpl-correlation-group-id, X-HubSpot-Dpl-Parent-Log-Id, x-hubspot-dpl-parent-log-id, X-HS-InfraIdp-Engaged, x-hs-infraidp-engaged, traceparent, X-HsOpenTelemetry-Head-Sampling-Strategy, x-hsopentelemetry-head-sampling-strategy, x-hs-fingerprint
+access-control-allow-methods:
+GET, OPTIONS, PUT, POST, DELETE, PATCH, HEAD
+access-control-allow-origin:
+https://app.hubspot.com
+access-control-expose-headers:
+x-last-modified-timestamp, X-HubSpot-NotFound, x-hubspot-notfound, X-HS-User-Request, x-hs-user-request, Link, link, Server-Timing, server-timing, X-Hubspot-Correct-Hublet, x-hubspot-correct-hublet, X-HubSpot-Auth-Failure, x-hubspot-auth-failure, X-HubSpot-Correlation-Id, x-hubspot-correlation-id
+access-control-max-age:
+604800
+cf-cache-status:
+DYNAMIC
+cf-ray:
+8dc507743ae6a313-YUL
+date:
+Sat, 02 Nov 2024 15:06:33 GMT
+nel:
+{"success_fraction":0.01,"report_to":"cf-nel","max_age":604800}
+report-to:
+{"endpoints":[{"url":"https:\/\/a.nel.cloudflare.com\/report\/v4?s=h11OSC%2FVLYLCBhI6Nk2aO%2FR0Po%2FXQYHuYGacxOM0gMftcHiLakHTdHtykBA8R0yVgWctZv6tYIxo2OCdy%2B8tzJdA3bsY8DNYNoxAk0zeDcGh9b0wGSrrPacq2BS%2BkUbGHg%3D%3D"}],"group":"cf-nel","max_age":604800}
+server:
+cloudflare
+server-timing:
+hcid;desc=7d844c10-3e71-4798-b338-620fb870ed5a
+strict-transport-security:
+max-age=31536000; includeSubDomains; preload
+timing-allow-origin:
+*
+vary:
+origin, Accept-Encoding
+x-content-type-options:
+nosniff
+x-hubspot-correlation-id:
+7d844c10-3e71-4798-b338-620fb870ed5a
+:authority:
+app.hubspot.com
+:method:
+POST
+:path:
+/api/cartographer/v1/ipl
+:scheme:
+https
+accept:
+*/*
+accept-encoding:
+gzip, deflate, br, zstd
+accept-language:
+en-US,en;q=0.9
+content-length:
+757
+content-type:
+text/plain;charset=UTF-8
+cookie:
+_cfuvid=pORk1OgQFyKDiTyaPsLMAqLGcRbDcdalfclrFYTiYNI-1730539084656-0.0.1.1-604800000; __cf_bm=vRGS3nBD46Gc7cgZ9Leow6UYLpZaYqs2P8vsTBp5mGo-1730559892-1.0.1.1-c_5wnW4.cHQBHi.aNtRCmaiWtCWYv5rcgn3.YJ_OYgUzHSPFXhYFFX4RSSnIf26Zz2uWyVtVkhHz0awPNtj5_Q
+dnt:
+1
+origin:
+https://app.hubspot.com
+priority:
+u=4, i
+referer:
+https://app.hubspot.com/conversations-visitor/3409122/threads/utk/31c15bca3c9e4ce1941208d013a50eec?uuid=400e60eda30a41d798c5e784c6ea17c5&mobile=false&mobileSafari=false&hideWelcomeMessage=false&hstc=&domain=app.jobnimbus.com&inApp53=false&messagesUtk=31c15bca3c9e4ce1941208d013a50eec&url=https%3A%2F%2Fapp.jobnimbus.com%2Fcontact%2Fm2uizmvfpfvvur9v2gulyz4&inline=false&isFullscreen=false&globalCookieOptOut=&isFirstVisitorSession=false&isAttachmentDisabled=false&isInitialInputFocusDisabled=false&enableWidgetCookieBanner=false&isInCMS=false&hideScrollToButton=true&isIOSMobile=false
+sec-ch-ua:
+"Not?A_Brand";v="99", "Chromium";v="130"
+sec-ch-ua-mobile:
+?0
+sec-ch-ua-platform:
+"macOS"
+sec-fetch-dest:
+empty
+sec-fetch-mode:
+no-cors
+sec-fetch-site:
+same-origin
+user-agent:
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36

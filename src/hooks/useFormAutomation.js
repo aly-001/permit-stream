@@ -372,41 +372,68 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
   }, []);
 
   const uploadDocuments = useCallback(async () => {
-    console.log('Uploading documents:', formData.documents);
-    return executeWithTimeout(`
-      return new Promise(async (resolve, reject) => {
-        try {
-          const fileInput = document.querySelector('input[type="file"]');
-          if (!fileInput) {
-            throw new Error('File input not found');
-          }
+    console.log('Starting document upload process with documents:', formData.documents);
+    try {
+      for (const document of formData.documents) {
+        console.log('Processing document:', {
+          filename: document.filename,
+          path: document.localPath,
+          exists: fs.existsSync(document.localPath)
+        });
+        
+        // Read file content synchronously
+        const fileContent = fs.readFileSync(document.localPath);
+        console.log('File content read, size:', fileContent.length);
 
-          fileInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          
-          const dataTransfer = new DataTransfer();
-          const documents = ${JSON.stringify(formData.documents)};
-          
-          for (const doc of documents) {
-            if (!doc.localPath) {
-              console.warn('Skipping document ' + doc.filename + ' - no local path');
-              continue;
+        await executeWithTimeout(
+          `
+          return new Promise((resolve, reject) => {
+            try {
+              console.log('Starting file upload in webview');
+              const input = document.querySelector('input[type="file"]');
+              if (!input) {
+                throw new Error('File input element not found');
+              }
+
+              // Create a File object from the file content
+              const file = new File(
+                [new Uint8Array(${JSON.stringify(Array.from(fileContent))})],
+                '${document.filename}',
+                { type: '${document.contentType}' }
+              );
+
+              // Create a DataTransfer object
+              const dataTransfer = new DataTransfer();
+              dataTransfer.items.add(file);
+              
+              // Set the files property
+              input.files = dataTransfer.files;
+
+              // Dispatch change event
+              const event = new Event('change', { bubbles: true });
+              input.dispatchEvent(event);
+              
+              console.log('File upload completed in webview');
+              resolve('File processed: ${document.filename}');
+            } catch (e) {
+              console.error('Upload error in webview:', e);
+              reject(e);
             }
-            
-            const file = await fetch('file://' + doc.localPath)
-              .then(res => res.blob())
-              .then(blob => new File([blob], doc.filename));
-            dataTransfer.items.add(file);
-          }
-          
-          fileInput.files = dataTransfer.files;
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          
-          resolve('Files uploaded');
-        } catch (e) {
-          reject('Failed to upload files: ' + e);
-        }
+          });
+          `, 10000); // Increased timeout for file processing
+
+        console.log(`Successfully processed document: ${document.filename}`);
+        // Add a larger delay between uploads
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    } catch (error) {
+      console.error('Detailed upload error:', {
+        message: error.message,
+        stack: error.stack,
+        documents: formData.documents
       });
-    `, 10000);
+      throw error;
+    }
   }, [executeWithTimeout, formData.documents]);
 
   const clickLargeContinueButton = useCallback(
