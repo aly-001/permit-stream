@@ -1,0 +1,390 @@
+Main goal: create enmax permit automation software
+Goal: be able to retrieve the files from jobNimbus, download them, and store the local file paths to be used in the automation process
+
+Relevant files:
+
+1. ContactContext.js
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import JobNimbusService from '../services/JobNimbusService';
+
+const ContactContext = createContext();
+
+const processContact = (rawContact) => {
+  // Calculate month offset and day from estimated install date
+  const calculatePlannedDate = (timestamp) => {
+    if (!timestamp) return { month_offset: 3, day: 15 }; // Default values if no timestamp
+
+    const currentDate = new Date();
+    const installDate = new Date(timestamp * 1000); // Convert Unix timestamp to milliseconds
+
+    // Calculate months between dates
+    let monthOffset = (installDate.getFullYear() - currentDate.getFullYear()) * 12 + 
+                     (installDate.getMonth() - currentDate.getMonth());
+    
+    // If monthOffset is negative, default to 3
+    monthOffset = monthOffset < 0 ? 3 : monthOffset;
+
+    return {
+      month_offset: monthOffset,
+      day: installDate.getDate()
+    };
+  };
+
+  const plannedDate = calculatePlannedDate(rawContact['Est Install Date'] || rawContact.cf_date_1);
+
+  return {
+    id: rawContact.recid,
+    site_id: rawContact.Site_ID || rawContact.cf_string_11 || "",
+    planned_date: plannedDate,
+    city: rawContact.city || "cat",
+    postal_code: rawContact.zip || "cat",
+    current_energy_consumption: rawContact.Consumption_Kwh?.toString() || rawContact.cf_double_2?.toString() || "",
+    projected_energy_production: rawContact.Production_kWh?.toString() || rawContact.cf_double_3?.toString() || "",
+    energy_source: "Solar",
+    generator_type: "Synchronous",
+    ac_capacity: rawContact.KW_DC?.toString() || rawContact.cf_double_4?.toString() || "",
+    required_documents: [
+      "Electrical single-line diagram",
+      "Site plan",
+      "Inverter specification",
+      "Solar panel specifications",
+      "Bidirectional meter installation acknowledgement",
+    ],
+    documents: [
+      {
+        filename: "sample-diagram.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/sample-diagram.pdf",
+        contentType: "application/pdf",
+      },
+      {
+        filename: "site-plan.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/site-plan.pdf",
+        contentType: "application/pdf",
+      },
+      {
+        filename: "inverter-specs.pdf",
+        downloadUrl: "file:///Users/username/Documents/SolarApp/customer-files/inverter-specs.pdf",
+        contentType: "application/pdf",
+      }
+    ],
+    contact: {
+      name: rawContact.display_name || "cat",
+      phone: rawContact.home_phone || rawContact.mobile_phone || rawContact.work_phone || "",
+      email: rawContact.email || "cat",
+      preferred_method: "email",
+    },
+  };
+};
+
+export function ContactProvider({ children }) {
+  const [contacts, setContacts] = useState([]);
+  const [currentContact, setCurrentContact] = useState(null);
+  const [display, setDisplay] = useState('info');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredContacts, setFilteredContacts] = useState([]);
+
+  const jobNimbusService = new JobNimbusService("m2ud7n7j67nzk6x0");
+
+  useEffect(() => {
+    const fetchContacts = async () => {
+      try {
+        const response = await jobNimbusService.getContacts();
+        
+        console.log('Raw Contact Data:', response.results);
+
+        const contactsData = response.results.map(contact => processContact(contact));
+
+        const sortedContacts = contactsData.sort((a, b) => b.date_created - a.date_created);
+        setContacts(sortedContacts);
+        setFilteredContacts(sortedContacts);
+        setCurrentContact(sortedContacts[0]);
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching contacts:', err);
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchContacts();
+  }, []);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredContacts(contacts);
+      return;
+    }
+
+    const filtered = contacts.filter(contact => 
+      contact.contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.contact.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    setFilteredContacts(filtered);
+  }, [searchTerm, contacts]);
+
+  return (
+    <ContactContext.Provider 
+      value={{ 
+        contacts,
+        filteredContacts,
+        setContacts, 
+        currentContact, 
+        setCurrentContact,
+        display,
+        setDisplay,
+        loading,
+        error,
+        searchTerm,
+        setSearchTerm
+      }}
+    >
+      {children}
+    </ContactContext.Provider>
+  );
+}
+
+export function useContacts() {
+  const context = useContext(ContactContext);
+  if (!context) {
+    throw new Error('useContacts must be used within a ContactProvider');
+  }
+  return context;
+}
+
+2. JobNimbusService.js
+const { ipcRenderer } = window.require('electron');
+
+class JobNimbusService {
+  constructor(apiToken) {
+    this.config = {
+      apiToken,
+      baseUrl: 'https://app.jobnimbus.com/api1'
+    };
+  }
+
+  async request(endpoint, options = {}) {
+    try {
+      const response = await ipcRenderer.invoke('api-request', {
+        url: `${this.config.baseUrl}${endpoint}`,
+        options: {
+          method: options.method || 'GET',
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.config.apiToken}`,
+            'Accept': 'application/json'
+          }
+        }
+      });
+      
+      console.log('API Response:', response);
+
+      if (response.status === 401) {
+        throw new Error('Authentication failed - please check your API token');
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('JobNimbusService Error:', error);
+      throw error;
+    }
+  }
+
+  async getContacts() {
+    return this.request('/contacts');
+  }
+
+  async getContactById(contactId) {
+    return this.request(`/contacts/${contactId}`);
+  }
+
+  async getContactDocuments(contactId) {
+    console.log(`Fetching documents for contact ID: ${contactId}`);
+    const timestamp = Date.now();
+    const response = await this.request('/files', {
+      method: 'GET',
+      params: {
+        grid: 'document',
+        webui: 'yes',
+        fields: 'content_type,filename,jnid,esign,size,pages,date_updated,related,description,date_created,date_file_created,record_type_name,created_by_name,created_by,report',
+        related: contactId,
+        size: 0,
+        _: timestamp
+      }
+    });
+    console.log('~~~~~~~Documents response:', response);
+    return response;
+  }
+
+  getDocumentDownloadUrl(documentId) {
+    return `${this.config.baseUrl}/files/${documentId}`;
+  }
+}
+
+export default JobNimbusService;
+
+Currently everything works, except as you can see, the files in ContactContext
+are dummy. This means that you need to 
+
+- implement the downloading 
+- retireve the file paths
+- replace the dummy file paths with the real file paths
+
+
+Note that I'm using electron with react. Here's my main.js
+
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+const https = require('https');
+
+// Add error handling for @electron/remote
+let remoteMain;
+try {
+  remoteMain = require('@electron/remote/main');
+  remoteMain.initialize();
+} catch (e) {
+  console.error('Failed to initialize @electron/remote:', e);
+}
+
+ipcMain.handle('api-request', async (event, { url, options }) => {
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const req = https.request(url, {
+        ...options,
+        headers: options.headers
+      }, (res) => {
+        let data = '';
+
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          // Log the raw response for debugging
+          console.log('Raw response:', data);
+          console.log('Status code:', res.statusCode);
+
+          // Handle authentication failure
+          if (res.statusCode === 401) {
+            resolve({
+              ok: false,
+              statusText: data.trim(), // Use the raw error message
+              data: null,
+              status: 401
+            });
+            return;
+          }
+
+          // For successful responses, try to parse JSON
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve({
+                ok: true,
+                statusText: res.statusMessage,
+                data: jsonData,
+                status: res.statusCode
+              });
+            } catch (error) {
+              resolve({
+                ok: false,
+                statusText: 'Invalid JSON response',
+                data: null,
+                status: res.statusCode
+              });
+            }
+          } else {
+            // For other error status codes
+            resolve({
+              ok: false,
+              statusText: data.trim() || res.statusMessage,
+              data: null,
+              status: res.statusCode
+            });
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      // Only write body if it exists and method isn't GET
+      if (options.body && options.method !== 'GET') {
+        req.write(JSON.stringify(options.body));
+      }
+      
+      req.end();
+    });
+
+    return response;
+  } catch (error) {
+    console.error('API Request Error:', error);
+    return {
+      ok: false,
+      statusText: error.message,
+      data: null,
+      status: 500
+    };
+  }
+});
+
+function createWindow() {
+    // Create the browser window.
+    const mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            webviewTag: true,
+            enableRemoteModule: true,
+            webSecurity: true,
+        }
+    });
+
+    if (remoteMain) {
+        remoteMain.enable(mainWindow.webContents);
+    }
+
+    // Add download handler
+    mainWindow.webContents.session.on('will-download', (event, item, webContents) => {
+        item.once('done', (event, state) => {
+            if (state === 'completed') {
+                console.log('Download completed');
+            } else {
+                console.log('Download failed');
+            }
+        });
+    });
+
+    // Load the index.html file
+    const isDev = process.env.NODE_ENV === 'development';
+    mainWindow.loadURL(
+        isDev ? 'http://localhost:3000' : `file://${path.join(__dirname, 'index.html')}`
+    );
+
+    // Open DevTools in development mode
+    mainWindow.webContents.openDevTools();
+}
+
+app.whenReady().then(createWindow);
+
+// Quit when all windows are closed.
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
+});

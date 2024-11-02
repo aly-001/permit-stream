@@ -18,7 +18,7 @@ const IndividualContact = ({ contact, isSelected, onClick }) => {
     <div style={styles.contactBox} onClick={onClick}>
       <AppText 
         color={isSelected ? colors.pinkGrey : colors.primary} 
-        text={contact.name} 
+        text={contact.contact.name} 
       />
     </div>
   );

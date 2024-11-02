@@ -11,22 +11,53 @@ function ContactInfo({ contact, onNext }) {
     name: "John Doe",
     phone: "123-456-7890",
     email: "john.doe@example.com",
-    address: "123 Main St, Anytown, USA"
+    address: "123 Main St, Anytown, USA",
+    site_id: "12345",
+    city: "Calgary",
+    postal_code: "T2P1J9",
+    current_energy_consumption: "1000",
+    projected_energy_production: "800",
+    energy_source: "Solar",
+    generator_type: "Synchronous",
+    ac_capacity: "1.23",
+    planned_date: { month_offset: 3, day: 15 }
   };
 
   // Use provided contact or fall back to temp contact
   const displayContact = contact || tempContact;
 
+  const infoFields = [
+    { label: "Name", value: displayContact.contact?.name },
+    { label: "Phone", value: displayContact.contact?.phone },
+    { label: "Email", value: displayContact.contact?.email },
+    { label: "Site ID", value: displayContact.site_id },
+    { label: "City", value: displayContact.city },
+    { label: "Postal Code", value: displayContact.postal_code },
+    { label: "Current Energy Consumption", value: `${displayContact.current_energy_consumption} kWh` },
+    { label: "Projected Energy Production", value: `${displayContact.projected_energy_production} kWh` },
+    { label: "Energy Source", value: displayContact.energy_source },
+    { label: "Generator Type", value: displayContact.generator_type },
+    { label: "AC Capacity", value: `${displayContact.ac_capacity} kW` },
+    { label: "Installation Date", value: `Month Offset: ${displayContact.planned_date?.month_offset}, Day: ${displayContact.planned_date?.day}` },
+  ];
+
   const styles = {
     container: {
-      flex: 1,
       height: "100%",
-      padding: layout.homeScreenSmallMargin,
+      display: "flex",
+      flexDirection: "column",
       backgroundColor: colors.blueGrey,
       position: "relative",
     },
+    header: {
+      padding: layout.homeScreenSmallMargin,
+      paddingBottom: 0,
+    },
     infoSection: {
-      marginTop: "20px",
+      flex: 1,
+      overflowY: "auto",
+      padding: layout.homeScreenSmallMargin,
+      paddingBottom: "80px", // Extra padding to ensure content isn't hidden behind button
     },
     infoRow: {
       display: "flex",
@@ -34,8 +65,8 @@ function ContactInfo({ contact, onNext }) {
       marginBottom: "15px",
     },
     nextButton: {
-      position: "absolute",
-      bottom: "-54px",
+      position: "fixed",
+      bottom: "20px",
       left: "50%",
       transform: "translateX(-50%)",
       zIndex: 1,
@@ -44,23 +75,35 @@ function ContactInfo({ contact, onNext }) {
 
   return (
     <div style={styles.container}>
-      <HeaderText text={displayContact.name} />
+      <div style={styles.header}>
+        <HeaderText text="Contact Information" />
+      </div>
       
       <div style={styles.infoSection}>
-        <div style={styles.infoRow}>
-          <AppText text="Phone" color={colors.primaryText} size="14px" />
-          <AppText text={displayContact.phone} color={colors.secondaryText} size="16px" />
-        </div>
+        {infoFields.map((field, index) => (
+          <div key={index} style={styles.infoRow}>
+            <AppText text={field.label} color={colors.primaryText} size="14px" />
+            <AppText 
+              text={field.value || "Not provided"} 
+              color={colors.secondaryText} 
+              size="16px" 
+            />
+          </div>
+        ))}
 
-        <div style={styles.infoRow}>
-          <AppText text="Email" color={colors.primaryText} size="14px" />
-          <AppText text={displayContact.email} color={colors.secondaryText} size="16px" />
-        </div>
-
-        <div style={styles.infoRow}>
-          <AppText text="Address" color={colors.primaryText} size="14px" />
-          <AppText text={displayContact.address} color={colors.secondaryText} size="16px" />
-        </div>
+        {displayContact.required_documents && (
+          <div style={styles.infoRow}>
+            <AppText text="Required Documents" color={colors.primaryText} size="14px" />
+            {displayContact.required_documents.map((doc, index) => (
+              <AppText 
+                key={index}
+                text={`• ${doc}`} 
+                color={colors.secondaryText} 
+                size="16px" 
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={styles.nextButton}>

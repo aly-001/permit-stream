@@ -6,7 +6,8 @@ import IndividualContact from "./IndividualContact";
 import { useContacts } from "../../contexts/ContactContext";
 
 function ContactsNav() {
-  const { contacts, setCurrentContact, currentContact } = useContacts();
+  const { filteredContacts, setCurrentContact, currentContact } = useContacts();
+  // console.log('ContactsNav render - filteredContacts:', filteredContacts);
   
   const styles = {
     contactsNav: {
@@ -28,7 +29,7 @@ function ContactsNav() {
         <HeaderText text="Contacts" />
       </div>
       <div style={styles.contactsNav}>
-        {contacts.map((contact) => (
+        {filteredContacts.map((contact) => (
           <IndividualContact 
             key={contact.id}
             contact={contact}

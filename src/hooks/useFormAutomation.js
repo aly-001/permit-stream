@@ -1,5 +1,8 @@
 // hooks/useFormAutomation.js
 import { useCallback } from "react";
+import { app } from '@electron/remote';
+import path from 'path';
+import fs from 'fs';
 
 const DEFAULT_FORM_DATA = {
   site_id: "0020001843127",
@@ -344,41 +347,66 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
     [executeWithTimeout]
   );
 
-  const uploadImage = useCallback(
-    () =>
-      executeWithTimeout(
-        `
-        return new Promise((resolve, reject) => {
-          const input = document.querySelector('input[type="file"]');
-          if (input) {
-            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(() => {
-              try {
-                // Create a File object
-                fetch('${DEFAULT_FORM_DATA.document_path}')
-                  .then(response => response.blob())
-                  .then(blob => {
-                    const file = new File([blob], 'my-image.jpg', { type: 'image/jpeg' });
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(file);
-                    input.files = dataTransfer.files;
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                    resolve('File uploaded');
-                  })
-                  .catch(error => reject('Failed to upload file: ' + error));
-              } catch (e) {
-                reject('Failed to upload file: ' + e);
-              }
-            }, 50);  // Reduced from 500
-          } else {
-            reject('File input not found');
+  const downloadDocument = useCallback(async (document) => {
+    try {
+      // Create downloads directory in app data
+      const downloadsPath = path.join(app.getPath('userData'), 'downloads');
+      if (!fs.existsSync(downloadsPath)) {
+        fs.mkdirSync(downloadsPath);
+      }
+
+      const filePath = path.join(downloadsPath, document.filename);
+      
+      // Download file using ipcRenderer
+      await ipcRenderer.invoke('download-file', {
+        url: document.downloadUrl,
+        filePath: filePath
+      });
+
+      return filePath;
+    } catch (error) {
+      console.error('Error downloading document:', error);
+      throw error;
+    }
+  }, []);
+
+  const uploadDocuments = useCallback(async () => {
+    console.log('Uploading documents:', formData.documents);
+    return executeWithTimeout(`
+      return new Promise(async (resolve, reject) => {
+        try {
+          const fileInput = document.querySelector('input[type="file"]');
+          if (!fileInput) {
+            throw new Error('File input not found');
           }
-        });
-      `,
-        5000  // Reduced from 15000
-      ),
-    [executeWithTimeout]
-  );
+
+          fileInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          const dataTransfer = new DataTransfer();
+          const documents = ${JSON.stringify(formData.documents)};
+          
+          for (const doc of documents) {
+            if (!doc.localPath) {
+              console.warn('Skipping document ' + doc.filename + ' - no local path');
+              continue;
+            }
+            
+            const file = await fetch('file://' + doc.localPath)
+              .then(res => res.blob())
+              .then(blob => new File([blob], doc.filename));
+            dataTransfer.items.add(file);
+          }
+          
+          fileInput.files = dataTransfer.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          
+          resolve('Files uploaded');
+        } catch (e) {
+          reject('Failed to upload files: ' + e);
+        }
+      });
+    `, 10000);
+  }, [executeWithTimeout, formData.documents]);
 
   const clickLargeContinueButton = useCallback(
     () =>
@@ -471,8 +499,9 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
         await clickCheckboxById(`document-checkbox-${i}`);
       }
 
-      // UPLOAD THE IMAGE
-      await uploadImage();
+      // Upload the actual documents instead of dummy image
+      await uploadDocuments();
+      
       // Note: File upload will need to be handled differently in a WebView
       await clickButtonByText("Continue", "supporting-documents");
 
@@ -517,7 +546,7 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
     clickRadioButtonById,
     clickDropdownAndSelect,
     clickCheckboxById,
-    uploadImage,
+    uploadDocuments,
     formData
   ]);
 

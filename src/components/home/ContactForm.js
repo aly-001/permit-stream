@@ -1,30 +1,31 @@
-import React from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { layout } from "../../config/layout";
 import Button from "../Button";
 import { colors } from "../../config/colors";
+import { useFormAutomation } from "../../hooks/useFormAutomation";
 
+function ContactInfo({ contact }) {
+  const webviewRef = useRef(null);
+  const [isWebviewReady, setIsWebviewReady] = useState(false);
+  const { fillForm } = useFormAutomation(webviewRef, isWebviewReady, contact);
 
-function ContactInfo({ contact, onNext }) {
-  // Temporary contact for development
-  const tempContact = {
-    name: "John Doe",
-    phone: "123-456-7890",
-    email: "john.doe@example.com",
-    address: "123 Main St, Anytown, USA"
-  };
-
-  // Use provided contact or fall back to temp contact
-  const displayContact = contact || tempContact;
+  // Setup webview event handlers
+  useEffect(() => {
+    if (webviewRef.current) {
+      webviewRef.current.addEventListener("dom-ready", () => {
+        console.log("Webview DOM ready");
+        setIsWebviewReady(true);
+      });
+    }
+  }, []);
 
   const styles = {
     container: {
       flex: 1,
       height: "100%",
-      padding: layout.homeScreenSmallMargin,
       backgroundColor: "#e8d7d7",
       display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
+      flexDirection: "column",
     },
     buttonContainer: {
       position: "absolute",
@@ -33,20 +34,31 @@ function ContactInfo({ contact, onNext }) {
       transform: "translateX(-50%)",
       zIndex: 1,
       display: "flex",
-      gap: "10px",  // Space between buttons
+    },
+    webview: {
+      flex: 1,
+      border: "none",
+      margin: 0,
+      padding: 0,
     }
   };
 
   return (
     <div style={styles.container}>
-      <div>PERMIT FORM for {displayContact.name}</div>
+      <webview
+        ref={webviewRef}
+        src="https://www.enmax.com/helping-power-your-project/start-a-project/connect-a-micro-generator"
+        style={styles.webview}
+        nodeintegration="true"
+        webpreferences="contextIsolation=false"
+      />
 
       <div style={styles.buttonContainer}>
         <Button
           text="Fill Form"
           color={colors.primary}
-          onClick={() => {/* Add your fill form handler here */}}
-          disabled={false}
+          onClick={fillForm}
+          disabled={!isWebviewReady}
         />
       </div>
     </div>
