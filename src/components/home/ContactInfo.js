@@ -5,7 +5,7 @@ import { layout } from "../../config/layout";
 import AppText from "../AppText";
 import Button from "../Button";
 
-function ContactInfo({ contact, onNext }) {
+function ContactInfo({ contact }) {
   // Temporary contact for development
   const tempContact = {
     name: "John Doe",
@@ -30,15 +30,9 @@ function ContactInfo({ contact, onNext }) {
     { label: "Name", value: displayContact.contact?.name },
     { label: "Phone", value: displayContact.contact?.phone },
     { label: "Email", value: displayContact.contact?.email },
-    { label: "Site ID", value: displayContact.site_id },
     { label: "City", value: displayContact.city },
     { label: "Postal Code", value: displayContact.postal_code },
-    { label: "Current Energy Consumption", value: `${displayContact.current_energy_consumption} kWh` },
-    { label: "Projected Energy Production", value: `${displayContact.projected_energy_production} kWh` },
     { label: "Energy Source", value: displayContact.energy_source },
-    { label: "Generator Type", value: displayContact.generator_type },
-    { label: "AC Capacity", value: `${displayContact.ac_capacity} kW` },
-    { label: "Installation Date", value: `Month Offset: ${displayContact.planned_date?.month_offset}, Day: ${displayContact.planned_date?.day}` },
   ];
 
   const styles = {
@@ -46,31 +40,46 @@ function ContactInfo({ contact, onNext }) {
       height: "100%",
       display: "flex",
       flexDirection: "column",
-      backgroundColor: colors.blueGrey,
+      backgroundColor: colors.secondaryBackground,
       position: "relative",
+      overflow: "hidden",
     },
     header: {
       padding: layout.homeScreenSmallMargin,
-      paddingBottom: 0,
+      paddingBottom: "10px",
+      flexShrink: 0,
     },
-    infoSection: {
+    scrollableSection: {
       flex: 1,
       overflowY: "auto",
       padding: layout.homeScreenSmallMargin,
-      paddingBottom: "80px", // Extra padding to ensure content isn't hidden behind button
+      paddingBottom: "100px",
     },
     infoRow: {
       display: "flex",
-      flexDirection: "column",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
       marginBottom: "15px",
     },
-    nextButton: {
-      position: "fixed",
-      bottom: "20px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      zIndex: 1,
-    }
+    fieldContainer: {
+      display: "flex",
+      flexDirection: "column",
+      flex: 1,
+      gap: "8px",
+    },
+    editButton: {
+      padding: "5px 10px",
+      marginLeft: "10px",
+      backgroundColor: colors.primaryBackground,
+      border: "none",
+      borderRadius: "4px",
+      color: "white",
+      cursor: "pointer",
+    },
+    documentTitle: {
+      marginBottom: "10px",
+    },
   };
 
   return (
@@ -79,40 +88,44 @@ function ContactInfo({ contact, onNext }) {
         <HeaderText text="Contact Information" />
       </div>
       
-      <div style={styles.infoSection}>
+      <div style={styles.scrollableSection}>
         {infoFields.map((field, index) => (
           <div key={index} style={styles.infoRow}>
-            <AppText text={field.label} color={colors.primaryText} size="14px" />
-            <AppText 
-              text={field.value || "Not provided"} 
-              color={colors.secondaryText} 
-              size="16px" 
-            />
-          </div>
-        ))}
-
-        {displayContact.required_documents && (
-          <div style={styles.infoRow}>
-            <AppText text="Required Documents" color={colors.primaryText} size="14px" />
-            {displayContact.required_documents.map((doc, index) => (
+            <div style={styles.fieldContainer}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <AppText text={field.label} color={colors.primaryText} size="14px" />
+                <button style={styles.editButton}>Edit</button>
+              </div>
               <AppText 
-                key={index}
-                text={`• ${doc}`} 
+                text={field.value || "Not provided"} 
                 color={colors.secondaryText} 
                 size="16px" 
               />
-            ))}
+            </div>
           </div>
-        )}
-      </div>
+        ))}
 
-      <div style={styles.nextButton}>
-        <Button
-          text="Next"
-          color={colors.primary}
-          onClick={onNext}
-          disabled={false}
-        />
+        {displayContact.documents && displayContact.documents.length > 0 && (
+          <>
+            <div style={styles.documentTitle}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <AppText text="Documents" color={colors.primaryText} size="14px" />
+                <button style={styles.editButton}>Edit</button>
+              </div>
+            </div>
+            {displayContact.documents.map((doc, index) => (
+              <div key={index} style={styles.infoRow}>
+                <div style={styles.fieldContainer}>
+                  <AppText 
+                    text={doc.filename} 
+                    color={colors.secondaryText} 
+                    size="14px" 
+                  />
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

@@ -12,23 +12,26 @@ function ContactsNav() {
   const styles = {
     contactsNav: {
       width: layout.sizes.contactNavWidth,
-      backgroundColor: colors.secondary,
+      backgroundColor: colors.secondaryBackground,
       height: "100%",
+      display: "flex",
+      flexDirection: "column",
+      borderRadius: layout.mainBorderRadius,
     },
     contactsHeader: {
-      position: "absolute",
-      top: "43px",
-      left: 0,
       padding: layout.homeScreenSmallMargin,
+      flexShrink: 0,
     },
+    contactsList: {
+      flex: 1,
+      overflowY: "auto",
+    }
   };
 
   return (
-    <>
-      <div style={styles.contactsHeader}>
-        <HeaderText text="Contacts" />
-      </div>
-      <div style={styles.contactsNav}>
+    
+    <div style={styles.contactsNav}>
+      <div style={styles.contactsList}>
         {filteredContacts.map((contact) => (
           <IndividualContact 
             key={contact.id}
@@ -38,7 +41,7 @@ function ContactsNav() {
           />
         ))}
       </div>
-    </>
+    </div>
   );
 }
 

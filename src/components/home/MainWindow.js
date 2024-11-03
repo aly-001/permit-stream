@@ -7,6 +7,7 @@ import AppText from "../AppText";
 import ToggleButton from "../ToggleButton";
 import { layout } from "../../config/layout";
 import { FaInfo, FaCheck } from 'react-icons/fa';
+import Button from "../Button";
 
 function MainWindow() {
   const { currentContact, display, setDisplay } = useContacts();
@@ -18,16 +19,30 @@ function MainWindow() {
       flexDirection: "column",
       alignItems: "center",
       position: "relative",
+      height: "100%",
     },
-    toggleContainer: {
+    toggleAndButtonContainer: {
       position: "absolute",
       top: "-54px",
       zIndex: 1,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: "10px",
+    },
+    nextButton: {
+      position: "absolute",
+      bottom: "-55px",
+      zIndex: 1,  
+      marginTop: "30px",
     },
     displayScreen: {
       flex: 1,
-      backgroundColor: colors.pinkGrey,
+      backgroundColor: colors.secondaryBackground,
       width: "100%",
+      height: "100%",
+      overflow: "hidden",
+      borderRadius: layout.mainBorderRadius,
     },
     noSelection: {
       display: "flex",
@@ -50,7 +65,7 @@ function MainWindow() {
 
   return (
     <div style={styles.container}>
-      <div style={styles.toggleContainer}>
+      <div style={styles.toggleAndButtonContainer}>
         <ToggleButton
           onToggle={() => setDisplay(display === 'info' ? 'form' : 'info')}
           disabled={false}
@@ -58,14 +73,25 @@ function MainWindow() {
           rightIcon={FaCheck}
           isLeft={display === 'info'}
         />
+
       </div>
       <div style={styles.displayScreen}>
         {display === 'form' ? (
           <ContactForm contact={currentContact} />
         ) : (
-          <ContactInfo contact={currentContact} onNext={() => setDisplay('form')} />
+          <ContactInfo contact={currentContact} />
         )}
       </div>
+      {display === 'info' && (
+          <div style={styles.nextButton}>
+            <Button
+              text="Next"
+              color={colors.primary}
+              onClick={() => setDisplay('form')}
+              disabled={false}
+            />
+        </div>
+      )}
     </div>
   );
 }

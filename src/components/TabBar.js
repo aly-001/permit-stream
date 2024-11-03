@@ -7,7 +7,7 @@ function TabBar({ currentScreen, onScreenChange }) {
   const styles = {
     tabBar: {
       width: '60px',
-      backgroundColor: colors.tertiary,
+      backgroundColor: colors.tertiaryBackground,
       height: '100vh',
       position: 'fixed',
       left: 0,

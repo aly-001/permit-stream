@@ -14,7 +14,7 @@ function SettingsScreen() {
       right: 0,
       bottom: 0,
       overflow: "hidden",
-      backgroundColor: colors.primary,
+      backgroundColor: colors.primaryBackground,
       padding: layout.homeScreenSmallMargin,
       paddingTop: layout.homeScreenLargeMargin,
       paddingBottom: layout.homeScreenLargeMargin,

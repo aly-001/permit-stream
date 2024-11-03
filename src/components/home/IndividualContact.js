@@ -5,10 +5,10 @@ import AppText from "../AppText";
 const IndividualContact = ({ contact, isSelected, onClick }) => {
   const styles = {
     contactBox: {
-      backgroundColor: isSelected ? colors.primary : colors.pinkGrey,
+      backgroundColor: isSelected ? colors.primaryBack : colors.pinkGrey,
       padding: "10px",
       margin: "5px",
-      borderRadius: "5px",
+      borderRadius: "10px",
       cursor: "pointer",
       transition: "background-color 0.2s ease",
     },

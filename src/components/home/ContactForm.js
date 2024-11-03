@@ -3,11 +3,14 @@ import { layout } from "../../config/layout";
 import Button from "../Button";
 import { colors } from "../../config/colors";
 import { useFormAutomation } from "../../hooks/useFormAutomation";
+import { useContacts } from "../../contexts/ContactContext";
 
 function ContactInfo({ contact }) {
   const webviewRef = useRef(null);
   const [isWebviewReady, setIsWebviewReady] = useState(false);
+  const [hasFilledForm, setHasFilledForm] = useState(false);
   const { fillForm } = useFormAutomation(webviewRef, isWebviewReady, contact);
+  const { handleContactComplete } = useContacts();
 
   // Setup webview event handlers
   useEffect(() => {
@@ -23,7 +26,7 @@ function ContactInfo({ contact }) {
     container: {
       flex: 1,
       height: "100%",
-      backgroundColor: "#e8d7d7",
+      backgroundColor: colors.secondaryBackground, 
       display: "flex",
       flexDirection: "column",
     },
@@ -34,6 +37,7 @@ function ContactInfo({ contact }) {
       transform: "translateX(-50%)",
       zIndex: 1,
       display: "flex",
+      gap: "10px",
     },
     webview: {
       flex: 1,
@@ -41,6 +45,11 @@ function ContactInfo({ contact }) {
       margin: 0,
       padding: 0,
     }
+  };
+
+  const handleFillForm = () => {
+    fillForm();
+    setHasFilledForm(true);
   };
 
   return (
@@ -56,10 +65,18 @@ function ContactInfo({ contact }) {
       <div style={styles.buttonContainer}>
         <Button
           text="Fill Form"
-          color={colors.primary}
-          onClick={fillForm}
+          color={colors.primaryBackground}
+          onClick={handleFillForm}
           disabled={!isWebviewReady}
         />
+        {hasFilledForm && (
+          <Button
+            text="Mark as Done"
+            color={colors.primary}
+            onClick={() => handleContactComplete(contact.id)}
+            disabled={!isWebviewReady}
+          />
+        )}
       </div>
     </div>
   );

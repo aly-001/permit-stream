@@ -138,6 +138,24 @@ export function ContactProvider({ children }) {
     setFilteredContacts(filtered);
   }, [searchTerm, contacts]);
 
+  const handleContactComplete = (contactId) => {
+    // Remove the completed contact
+    const updatedContacts = contacts.filter(contact => contact.id !== contactId);
+    const updatedFilteredContacts = filteredContacts.filter(contact => contact.id !== contactId);
+    
+    // Update states
+    setContacts(updatedContacts);
+    setFilteredContacts(updatedFilteredContacts);
+    
+    // Set the next contact as current
+    const currentIndex = filteredContacts.findIndex(contact => contact.id === contactId);
+    const nextContact = updatedFilteredContacts[currentIndex] || updatedFilteredContacts[0] || null;
+    setCurrentContact(nextContact);
+    
+    // Reset display to 'info'
+    setDisplay('info');
+  };
+
   return (
     <ContactContext.Provider
       value={{
@@ -152,6 +170,7 @@ export function ContactProvider({ children }) {
         error,
         searchTerm,
         setSearchTerm,
+        handleContactComplete,
       }}
     >
       {children}

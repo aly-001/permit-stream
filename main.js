@@ -13,7 +13,7 @@ try {
   console.error('Failed to initialize @electron/remote:', e);
 }
 
-
+const isDev = process.env.NODE_ENV === 'development';
 
 /// TEMP CODE HANDLER
 ipcMain.handle('save-file', async (event, { filename, blob }) => {
@@ -194,7 +194,7 @@ ipcMain.handle('download-file', async (event, { url, fileName, headers }) => {
 
 async function installDevTools() {
   try {
-    const REACT_DEVELOPER_TOOLS = require('electron-devtools-installer').REACT_DEVELOPER_TOOLS;
+    const { default: installExtension, REACT_DEVELOPER_TOOLS } = require('electron-devtools-installer');
     const name = await installExtension(REACT_DEVELOPER_TOOLS);
     console.log(`Added Extension: ${name}`);
   } catch (err) {
@@ -220,6 +220,32 @@ function createWindow() {
         remoteMain.enable(mainWindow.webContents);
     }
 
+    if (isDev) {
+        // Only watch specific directories to prevent reload loops
+        require('electron-reload')(__dirname, {
+            electron: path.join(__dirname, 'node_modules', '.bin', 'electron'),
+            forceHardReset: false,
+            hardResetMethod: 'exit',
+            // Specify which files to watch
+            watched: [
+                path.join(__dirname, 'dist/**/*'),
+                path.join(__dirname, 'src/**/*'),
+                // Don't watch node_modules
+                '!**/node_modules/**'
+            ]
+        });
+        
+        mainWindow.loadURL('http://localhost:8080');
+        
+        // Only open DevTools once
+        mainWindow.webContents.once('dom-ready', () => {
+            mainWindow.webContents.openDevTools();
+        });
+    } else {
+        // Load production build
+        mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    }
+
     // Add download handler
     mainWindow.webContents.session.on('will-download', (event, item, webContents) => {
         item.once('done', (event, state) => {
@@ -230,12 +256,6 @@ function createWindow() {
             }
         });
     });
-
-    // Load the index.html file
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
-
-    // Open DevTools in development mode
-    mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(async () => {

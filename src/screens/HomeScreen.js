@@ -3,6 +3,7 @@ import ContactsNav from "../components/home/ContactsNav";
 import MainWindow from "../components/home/MainWindow";
 import { colors } from "../config/colors";
 import { layout } from "../config/layout";
+import HeaderText from "../components/HeaderText";
 
 function HomeScreen() {
   const styles = {
@@ -16,7 +17,7 @@ function HomeScreen() {
       right: 0,
       bottom: 0,
       overflow: "hidden",
-      backgroundColor: colors.primary,
+      backgroundColor: colors.primaryBackground,
       padding: layout.homeScreenSmallMargin,
       paddingTop: layout.homeScreenLargeMargin,
       paddingBottom: layout.homeScreenLargeMargin,
@@ -25,12 +26,27 @@ function HomeScreen() {
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
+    },
+    contactsSection: {
+      position: 'relative',
+    },
+    contactsHeader: {
+      position: 'absolute',
+      top: -60,
+      left: -20,
+      zIndex: 1,
+      padding: layout.homeScreenSmallMargin,
     }
   };
 
   return (
     <div style={styles.mainContainer}>
-      <ContactsNav />
+      <div style={styles.contactsSection}>
+        <div style={styles.contactsHeader}>
+          <HeaderText text="Contacts" />
+        </div>
+        <ContactsNav />
+      </div>
       <div style={{width: layout.homeScreenSmallMargin}}></div>
       <div style={styles.rightSection}>
         <MainWindow />

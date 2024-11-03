@@ -3,5 +3,6 @@ export const layout = {
   homeScreenLargeMargin: "100px",
   sizes : {
     contactNavWidth: "250px",
-  }
+  },
+  mainBorderRadius: "15px",
 };
