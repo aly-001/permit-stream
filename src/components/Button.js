@@ -1,19 +1,20 @@
 import React from 'react';
 
-function Button({ text, color, onClick }) {
+function Button({ text, color = 'white', backgroundColor, onClick }) {
   const styles = {
     button: {
-      backgroundColor: color,
+      backgroundColor: backgroundColor,
       border: 'none',
-      color: 'white',
-      padding: '10px 20px',
+      color: color,
+      padding: '7px 18px',
       textAlign: 'center',
       textDecoration: 'none',
       display: 'inline-block',
-      fontSize: '16px',
+      fontSize: '15px',
+      fontWeight: '500',
       margin: '4px 2px',
       cursor: 'pointer',
-      borderRadius: '4px',
+      borderRadius: '8px',
     }
   };
 

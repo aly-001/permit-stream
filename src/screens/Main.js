@@ -9,8 +9,8 @@ function MainScreen() {
   const [currentScreen, setCurrentScreen] = useState('home');
 
   React.useEffect(() => {
-    document.body.style.backgroundColor = colors.primary;
-    document.documentElement.style.backgroundColor = colors.primary;
+    document.body.style.backgroundColor = colors.primaryBackground;
+    document.documentElement.style.backgroundColor = colors.primaryBackground;
     
     return () => {
       document.body.style.backgroundColor = '';

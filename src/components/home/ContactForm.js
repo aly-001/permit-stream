@@ -32,7 +32,7 @@ function ContactInfo({ contact }) {
     },
     buttonContainer: {
       position: "absolute",
-      bottom: "-54px",
+      bottom: "-66px",
       left: "50%",
       transform: "translateX(-50%)",
       zIndex: 1,
@@ -64,15 +64,17 @@ function ContactInfo({ contact }) {
 
       <div style={styles.buttonContainer}>
         <Button
-          text="Fill Form"
-          color={colors.primaryBackground}
+          text={hasFilledForm ? "Refill Form" : "Fill Form"}
+          color={hasFilledForm ? colors.primary : "white"}
+          backgroundColor={hasFilledForm ? "white" : colors.primary}
+          textColor={hasFilledForm ? colors.primary : "white"}
           onClick={handleFillForm}
           disabled={!isWebviewReady}
         />
         {hasFilledForm && (
           <Button
             text="Mark as Done"
-            color={colors.primary}
+            backgroundColor={colors.primary}
             onClick={() => handleContactComplete(contact.id)}
             disabled={!isWebviewReady}
           />

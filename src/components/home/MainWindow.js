@@ -32,7 +32,7 @@ function MainWindow() {
     },
     nextButton: {
       position: "absolute",
-      bottom: "-55px",
+      bottom: "-66px",
       zIndex: 1,  
       marginTop: "30px",
     },
@@ -86,7 +86,8 @@ function MainWindow() {
           <div style={styles.nextButton}>
             <Button
               text="Next"
-              color={colors.primary}
+              color={"white"}
+              backgroundColor={colors.primary}
               onClick={() => setDisplay('form')}
               disabled={false}
             />

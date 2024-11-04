@@ -68,7 +68,7 @@ const FileSelector = ({ isOpen, onClose, documents, onSelect }) => {
     },
     documentWrapperSelected: {
       borderColor: "#007bff",
-      backgroundColor: colors.primary,
+      backgroundColor: colors.lightHighlight,
     },
     modalActions: {
       display: "flex",

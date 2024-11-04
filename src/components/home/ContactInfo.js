@@ -7,6 +7,7 @@ import FileInfo from "./FileInfo";
 import FileSelector from "./FileSelector";
 import { useState } from "react";
 import { useContacts } from "../../contexts/ContactContext";
+import Button from "../Button";
 
 function ContactInfo({ contact }) {
   const { setCurrentContact } = useContacts();
@@ -83,15 +84,6 @@ function ContactInfo({ contact }) {
       flex: 1,
       gap: "8px",
     },
-    editButton: {
-      padding: "5px 10px",
-      marginLeft: "10px",
-      backgroundColor: colors.primaryBackground,
-      border: "none",
-      borderRadius: "4px",
-      color: "white",
-      cursor: "pointer",
-    },
     documentTitle: {
       marginBottom: "10px",
     },
@@ -116,7 +108,12 @@ function ContactInfo({ contact }) {
             <div style={styles.fieldContainer}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <AppText text={field.label} color={colors.primaryText} size="14px" />
-                <button style={styles.editButton}>Edit</button>
+                <Button 
+                  text="Edit"
+                  color={colors.primary}
+                  backgroundColor={colors.shadePrimary}
+                  onClick={() => setIsFileSelectOpen(true)}
+                />
               </div>
               <AppText 
                 text={field.value || "Not provided"} 
@@ -132,12 +129,12 @@ function ContactInfo({ contact }) {
             <div style={styles.documentTitle}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <AppText text="Documents" color={colors.primaryText} size="14px" />
-                <button 
-                  style={styles.editButton}
+                <Button 
+                  text="Edit"
+                  color={colors.primary}
+                  backgroundColor={colors.shadePrimary}
                   onClick={() => setIsFileSelectOpen(true)}
-                >
-                  Edit
-                </button>
+                />
               </div>
             </div>
             <FileInfo documents={displayContact.selectedDocuments} />

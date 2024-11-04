@@ -9,8 +9,8 @@ function ToggleButton({ onToggle, disabled, isLeft, leftIcon: LeftIcon, rightIco
   const styles = {
     container: {
       display: 'flex',
-      backgroundColor: '#e0e0e0',
-      borderRadius: '5px',
+      backgroundColor: '#EDF2F7',
+      borderRadius: '8px',
       position: 'relative',
       width: vertical ? `${HALF_SIZE}px` : `${TOGGLE_SIZE}px`,
       height: vertical ? `${TOGGLE_SIZE}px` : `${HALF_SIZE}px`,
@@ -22,7 +22,7 @@ function ToggleButton({ onToggle, disabled, isLeft, leftIcon: LeftIcon, rightIco
     slider: {
       position: 'absolute',
       backgroundColor: 'white',
-      borderRadius: '5px',
+      borderRadius: '8px',
       width: `${HALF_SIZE}px`,
       height: `${HALF_SIZE}px`,
       transition: 'transform 0.3s ease',
@@ -39,7 +39,7 @@ function ToggleButton({ onToggle, disabled, isLeft, leftIcon: LeftIcon, rightIco
       color: '#666',
     },
     activeIcon: {
-      color: '#2196F3',
+      color: colors.primary,
     }
   };
 
