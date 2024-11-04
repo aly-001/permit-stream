@@ -374,9 +374,8 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
   const uploadDocuments = useCallback(async () => {
     console.log('Starting document upload process');
     try {
-      // Process files in chunks to avoid memory issues
-      const CHUNK_SIZE = 2; // Process 2 files at a time
-      const documents = [...formData.documents];
+      const CHUNK_SIZE = 2;
+      const documents = [...formData.selectedDocuments];
       
       while (documents.length > 0) {
         const chunk = documents.splice(0, CHUNK_SIZE);
@@ -433,7 +432,7 @@ export const useFormAutomation = (webviewRef, isWebviewReady, formData = DEFAULT
       console.error('Upload error:', error);
       throw error;
     }
-  }, [executeWithTimeout, formData.documents]);
+  }, [executeWithTimeout, formData.selectedDocuments]);
 
   const clickLargeContinueButton = useCallback(
     () =>

@@ -47,7 +47,8 @@ const processContact = async (rawContact, jobNimbusService) => {
       "Solar panel specifications",
       "Bidirectional meter installation acknowledgement",
     ],
-    documents: documents,
+    allDocuments: documents,
+    selectedDocuments: documents,
     contact: {
       name: rawContact.display_name || "cat",
       phone:

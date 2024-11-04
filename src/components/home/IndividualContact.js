@@ -5,7 +5,7 @@ import AppText from "../AppText";
 const IndividualContact = ({ contact, isSelected, onClick }) => {
   const styles = {
     contactBox: {
-      backgroundColor: isSelected ? colors.primaryBack : colors.pinkGrey,
+      backgroundColor: isSelected ? colors.primary : colors.primaryBackgroundLight,
       padding: "10px",
       margin: "5px",
       borderRadius: "10px",
@@ -17,7 +17,7 @@ const IndividualContact = ({ contact, isSelected, onClick }) => {
   return (
     <div style={styles.contactBox} onClick={onClick}>
       <AppText 
-        color={isSelected ? colors.pinkGrey : colors.primary} 
+        color={isSelected ? colors.primaryText : colors.primary} 
         text={contact.contact.name} 
       />
     </div>
